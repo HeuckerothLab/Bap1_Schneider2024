@@ -1,0 +1,1199 @@
+---
+title: "Bap1 Analysis Separate Datasets"
+author: "Sabine Schneider"
+date: "June 09, 2023"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+Loading the necessary libraries
+
+```{r load library, include=FALSE}
+library(dplyr)
+library(Matrix)
+library(ggplot2)
+library(Seurat)
+library(gplots)
+```
+
+Starting Out:
+I have both knockout and WT data sets that I will have to combine computationally, but I will start getting familiar with the data by working with the KO data set and WT data set SEPARATELY first.
+I will first create a Seurat object. 
+
+```{r initialize, eval=TRUE}
+data_dir_filt <- "C:\\Users\\sabin\\Box Sync\\Single Cell Seq Bap1 Data\\Knockout\\outs\\filtered_feature_bc_matrix\\zipped"
+
+#This is the file directory: C:\Users\sabin\Box Sync\Single Cell Seq Bap1 Data\Knockout\outs\filtered_feature_bc_matrix
+
+list.files(data_dir_filt)
+#This lists the 3 files that the Seurat Object technically expects
+# barcodes.tsv, matrix.mtx, and features.tsv
+
+KO_expr_matrix_filt <- Read10X(data.dir = data_dir_filt)
+#Yet, I somehow get an error here: "Barcode file missing"
+#I figured it out: The files in the cirectory need to stay zipped for the Seurat pipeline to work properly!!!
+
+KO_data_dir_filt <- "C:\\Users\\sabin\\Box Sync\\Single Cell Seq Bap1 Data\\Knockout\\outs\\filtered_feature_bc_matrix\\zipped"
+
+KO_expr_matrix_filt <- Read10X(data.dir = KO_data_dir_filt)
+
+
+WT_data_dir_filt <- "C:\\Users\\sabin\\Box Sync\\Single Cell Seq Bap1 Data\\Wild-type\\outs\\filtered_feature_bc_matrix\\zipped"
+#The files in the cirectory need to stay zipped for the Seurat pipeline to work properly!!!
+
+WT_expr_matrix_filt <- Read10X(data.dir = WT_data_dir_filt)
+
+
+KO_Data <- CreateSeuratObject(KO_expr_matrix_filt, project = "KO_Bap1_Data",assay = "RNA",
+  min.cells = 0, min.features = 0)
+
+#An object of class Seurat 
+#31053 features across 17042 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+saveRDS(KO_Data, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_NoProcessing.rds"))
+#KO_Data <- readRDS("KO_Data_NoProcessing.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_NoProcessing.rds"))
+
+WT_Data <- CreateSeuratObject(WT_expr_matrix_filt, project = "KO_Bap1_Data",assay = "RNA",
+  min.cells = 0, min.features = 0)
+
+#An object of class Seurat 
+#31053 features across 12203 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+saveRDS(WT_Data, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_NoProcessing.rds"))
+#WT_Data <- readRDS("WT_Data_NoProcessing.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_NoProcessing.rds"))
+
+
+```
+
+## Now I need to start filtering the data sets
+
+You can also embed plots, for example:
+
+```{r filtering outliers, eval=TRUE}
+KO_Data[["percent.mt"]] <- PercentageFeatureSet(KO_Data, pattern = "^mt-")
+
+VlnPlot(KO_Data, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+## There are quite a few cells with mitochondrial RNA proportion >20%, but the majority of cells seems to cluster below that line. I do not feel comfortable including cells with too much mitochondrial contamination, so I will exclude anything >10% even if it limits my dataset! I will not include cells with nFeature <200 because I have no idea how we would identify any cells if less than 200 genes are identified. 
+
+WT_Data[["percent.mt"]] <- PercentageFeatureSet(WT_Data, pattern = "^mt-")
+
+VlnPlot(WT_Data, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+##Looking at both data sets now, it looks like nCount >50,000 should be excluded. There is a smattering above that line for both WT and KO. I could also remove cells with nFeature >7500 since there is only a smattering of those cells in either of the samples...
+
+#Now on to removing outliers:
+KO_Data_1 <- subset(KO_Data, subset = nFeature_RNA > 200 & nCount_RNA <50000 & percent.mt < 10)
+#An object of class Seurat 
+#31053 features across 14693 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+VlnPlot(KO_Data_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0.1)
+
+WT_Data_1 <- subset(WT_Data, subset = nFeature_RNA > 200 & nCount_RNA <50000 & percent.mt < 10)
+#An object of class Seurat 
+#31053 features across 10304 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+VlnPlot(WT_Data_1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0.1)
+
+#I also want to see how to data looks like (how many potential neurons and glia I am losing) if I remove the cells with gene counts/nFeature < 1500 - there seems to be a natural cut-off around that number
+
+WT_Data_nFeat1500 <- subset(WT_Data, subset = nFeature_RNA > 1500 & nCount_RNA <50000 & percent.mt < 10)
+
+VlnPlot(WT_Data_nFeat1500, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0.1)
+
+WT_Data_nFeat1500
+#An object of class Seurat 
+#31053 features across 8016 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+KO_Data_nFeat1500 <- subset(KO_Data, subset = nFeature_RNA > 1500 & nCount_RNA <50000 & percent.mt < 10)
+
+VlnPlot(KO_Data_nFeat1500, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0.1)
+
+KO_Data_nFeat1500
+#An object of class Seurat 
+#31053 features across 12640 samples within 1 assay 
+#Active assay: RNA (31053 features)
+
+#Actually, what I really want to do is visualize cells that have high mitochondrial percentage/low nCount/low nFeature in all 3 plots:
+WT_Data_trial <- AddMetaData(WT_Data, WT_Data[["percent.mt"]]>10, col.name = "PercMito.10")
+
+VlnPlot(WT_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "PercMito.10")
+
+KO_Data_trial <- AddMetaData(KO_Data, WT_Data[["percent.mt"]]>10, col.name = "PercMito.10")
+
+VlnPlot(KO_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "PercMito.10")
+
+#It turns out that most of the cells with >10% RNA also have low unique RNA counts (not all, but most). I feel comfortable excluding cells based on the 10% cut-off even though it removes quite a few cells from the dataset.
+
+#To visualize the effect of removing cells with <1500 unique genes: 
+WT_Data_trial_nFeat1500 <- AddMetaData(WT_Data, WT_Data[["nFeature_RNA"]]>1500, col.name = "nFeat.above1500")
+
+VlnPlot(WT_Data_trial_nFeat1500, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nFeat.above1500")
+
+KO_Data_trial_nFeat1500 <- AddMetaData(KO_Data, KO_Data[["nFeature_RNA"]]>1500, col.name = "nFeat.above1500")
+
+VlnPlot(KO_Data_trial_nFeat1500, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nFeat.above1500")
+
+#To visualize the effect of removing cells with <1000 unique genes: 
+WT_Data_trial_nFeat1000 <- AddMetaData(WT_Data, WT_Data[["nFeature_RNA"]]>1000, col.name = "nFeat.above1000")
+
+VlnPlot(WT_Data_trial_nFeat1000, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nFeat.above1000")
+
+KO_Data_trial_nFeat1500 <- AddMetaData(KO_Data, KO_Data[["nFeature_RNA"]]>1000, col.name = "nFeat.above1000")
+
+VlnPlot(KO_Data_trial_nFeat1000, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nFeat.above1000")
+
+#The # of unique RNA molecules detected seems to be a particularly important parameter based on the graphs - removing low expressors immediately increases the average number of genes detected in our sample and it drastically reduces the number of cells with high mitochondrial percentage:
+WT_Data_trial_nCount5000 <- AddMetaData(WT_Data, WT_Data[["nCount_RNA"]]>5000, col.name = "nCount.above5000")
+
+VlnPlot(WT_Data_trial_nCount5000, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nCount.above5000")
+
+KO_Data_trial_nCount5000 <- AddMetaData(KO_Data, KO_Data[["nCount_RNA"]]>5000, col.name = "nCount.above5000")
+
+VlnPlot(KO_Data_trial_nCount5000, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "nCount.above5000")
+
+#Sox10 expression across the sample:
+WT_Data_trial$Sox10Exp <- "Sox10.neg"
+WT_Data_trial$Sox10Exp[WhichCells(WT_Data_trial, expression = Sox10 > 0)] <- "Sox10.pos"
+Idents(WT_Data_trial) <- "Sox10Exp"
+
+VlnPlot(WT_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Sox10Exp")
+
+WT_Data_trial$Elavl4Exp <- "Elavl4.neg"
+WT_Data_trial$Elavl4Exp[WhichCells(WT_Data_trial, expression = Elavl4 > 0)] <- "Elavl4.pos"
+Idents(WT_Data_trial) <- "Elavl4Exp"
+
+VlnPlot(WT_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Elavl4Exp")
+
+KO_Data_trial$Sox10Exp <- "Sox10.neg"
+KO_Data_trial$Sox10Exp[WhichCells(KO_Data_trial, expression = Sox10 > 0)] <- "Sox10.pos"
+Idents(KO_Data_trial) <- "Sox10Exp"
+
+VlnPlot(KO_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Sox10Exp")
+
+KO_Data_trial$Elavl4Exp <- "Elavl4.neg"
+KO_Data_trial$Elavl4Exp[WhichCells(KO_Data_trial, expression = Elavl4 > 0)] <- "Elavl4.pos"
+Idents(KO_Data_trial) <- "Elavl4Exp"
+
+VlnPlot(KO_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Elavl4Exp")
+
+#What about double positive cells:
+WT_Data_trial$Tubb3_NeuronGliaExp <- "neg"
+#WT_Data_trial$Tubb3_NeuronGliaExp[WhichCells(WT_Data_trial, expression = Tubb3 > 0)] <- "Tubb3pos"
+#WT_Data_trial$Tubb3_NeuronGliaExp[WhichCells(WT_Data_trial, expression = Sox10 > 0)] <- "Sox10pos"
+WT_Data_trial$Tubb3_NeuronGliaExp[WhichCells(WT_Data_trial, expression = (Tubb3 > 0 & Sox10 > 0))] <- "Doublepos"
+Idents(WT_Data_trial) <- "Tubb3_NeuronGliaExp"
+
+VlnPlot(WT_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Tubb3_NeuronGliaExp")
+
+KO_Data_trial$Tubb3_NeuronGliaExp <- "neg"
+#KO_Data_trial$Tubb3_NeuronGliaExp[WhichCells(KO_Data_trial, expression = Tubb3 > 0)] <- "Tubb3pos"
+#KO_Data_trial$Tubb3_NeuronGliaExp[WhichCells(KO_Data_trial, expression = Sox10 > 0)] <- "Sox10pos"
+KO_Data_trial$Tubb3_NeuronGliaExp[WhichCells(KO_Data_trial, expression = (Tubb3 > 0 & Sox10 > 0))] <- "Doublepos"
+Idents(KO_Data_trial) <- "Tubb3_NeuronGliaExp"
+
+VlnPlot(KO_Data_trial, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0, split.by = "Tubb3_NeuronGliaExp")
+
+#To get the mean # of unique genes detected and the mean # of unique UMIs detected:
+#object@meta.data$nFeature_RNA
+#object@meta.data$nCount_RNA
+
+mean(KO_Data$nFeature_RNA)
+#[1] 2571.907
+mean(WT_Data@meta.data$nCount_RNA)
+#[1] 6847.621
+mean(KO_Data@meta.data$nFeature_RNA)
+#[1] 2571.907
+mean(WT_Data@meta.data$nFeature_RNA)
+#[1] 2457.788
+mean(KO_Data@meta.data$nCount_RNA)
+#[1] 8061.671
+sd(KO_Data@meta.data$nCount_RNA)
+#[1] 8346.001
+sd(WT_Data@meta.data$nCount_RNA)
+#[1] 6198.176
+sd(KO_Data@meta.data$nFeature_RNA)
+#[1] 1428.065
+
+sd(WT_Data@meta.data$nFeature_RNA)
+#[1] 1257.884
+sd(WT_Data_1@meta.data$nFeature_RNA)
+#[1] 1242.893
+sd(KO_Data_1@meta.data$nFeature_RNA)
+#[1] 1369.96
+sd(KO_Data_1@meta.data$nCount_RNA)
+#[1] 8043.579
+sd(WT_Data_1@meta.data$nCount_RNA)
+#[1] 6175.539
+mean(WT_Data_1@meta.data$nCount_RNA)
+#[1] 7478.931
+mean(KO_Data_1@meta.data$nCount_RNA)
+#[1] 8647.609
+mean(KO_Data_1@meta.data$nFeature_RNA)
+#[1] 2750.946
+mean(WT_Data_1@meta.data$nFeature_RNA)
+#[1] 2643.957
+sd(WT_Data_nFeat1500@meta.data$nFeature_RNA)
+#[1] 1008.589
+
+sd(KO_Data_nFeat1500@meta.data$nFeature_RNA)
+#[1] 1228.314
+sd(KO_Data_nFeat1500@meta.data$nCount_RNA)
+#[1] 8079.559
+sd(WT_Data_nFeat1500@meta.data$nCount_RNA)
+#[1] 6058.95
+mean(WT_Data_nFeat1500@meta.data$nCount_RNA)
+#[1] 9128.413
+mean(KO_Data_nFeat1500@meta.data$nCount_RNA)
+#[1] 9821.476
+mean(KO_Data_nFeat1500@meta.data$nFeature_RNA)
+#[1] 3054.88
+mean(WT_Data_nFeat1500@meta.data$nFeature_RNA)
+#[1] 3105.588
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r normalization, eval=TRUE}
+#Apply sctransform normalization:
+# From Seurat tutorial:
+# -> Note that this single command replaces NormalizeData(), ScaleData(), and FindVariableFeatures().
+# -> Transformed data will be available in the SCT assay, which is set as the default after running sctransform
+# -> During normalization, we can also remove confounding sources of variation, for example, mitochondrial mapping percentage
+
+#This is the data set that has only removed the cells with mitochondrial RNA percentage above 10%, the lowest number of genes (<200), and the cells with the highest number of RNA counts >50000
+KO_Data_1_Norm <- SCTransform(KO_Data_1, vars.to.regress = "percent.mt", verbose = FALSE)
+
+saveRDS(KO_Data_1_Norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Normalized.rds"))
+#KO_Data_1_Norm <- readRDS("KO_Data_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Normalized.rds"))
+
+
+WT_Data_1_Norm <- SCTransform(WT_Data_1, vars.to.regress = "percent.mt", verbose = FALSE)
+
+saveRDS(WT_Data_1_Norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Normalized.rds"))
+#WT_Data_1_Norm <- readRDS("WT_Data_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Normalized.rds"))
+
+#This is the data set with the very stringent inclusion criteria: all cells with mitochondrial RNA percentage >10% were removed, the lowest number of unique genes included in the dataset is >1500, and the cells with the highest number of RNA counts have <50000
+KO_Data_nFeat1500_Norm <- SCTransform(KO_Data_nFeat1500, vars.to.regress = "percent.mt", verbose = FALSE)
+
+saveRDS(KO_Data_nFeat1500_Norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Normalized.rds"))
+#KO_Data_nFeat1500_Norm <- readRDS("KO_Data_nFeat1500_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Normalized.rds"))
+
+
+WT_Data_nFeat1500_Norm <- SCTransform(WT_Data_nFeat1500, vars.to.regress = "percent.mt", verbose = FALSE)
+
+saveRDS(WT_Data_nFeat1500_Norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Normalized.rds"))
+#WT_Data_nFeat1500_Norm <- readRDS("WT_Data_nFeat1500_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Normalized.rds"))
+
+
+```
+
+Run PCA
+
+```{r PCA, eval=TRUE}
+WT_Data_1_PCA <- RunPCA(WT_Data_1_Norm, verbose = FALSE)
+
+KO_Data_1_PCA <- RunPCA(KO_Data_1_Norm, verbose = FALSE)
+
+WT_Data_nFeat1500_PCA <- RunPCA(WT_Data_nFeat1500_Norm, verbose = FALSE)
+
+KO_Data_nFeat1500_PCA <- RunPCA(KO_Data_nFeat1500_Norm, verbose = FALSE)
+
+```
+
+I found an intriguing new way to figure out the number of PCAs that should be used to cluster the cells:
+
+From:https://hbctraining.github.io/In-depth-NGS-Data-Analysis-Course/sessionIV/lessons/SC_clustering_analysis.html
+
+"Based on this plot, we can eye the plot, and guess that the elbow appears to be around PC 7 or 8. While this gives us a good idea of the number of PCs to include, a more quantitative approach may be a bit more reliable.
+
+PC selection - identifying the true dimensionality of a dataset - is an important step for our clustering analysis, but can be challenging/uncertain. While there are a variety of ways to choose a threshold, we're going to calculate where the principal components start to elbow by taking the larger value of:
+
+The point where the principal components only contribute 5% of standard deviation and the principal components cumulatively contribute 90% of the standard deviation.
+The point where the percent change in variation between the consequtive PCs is less than 0.1%."
+
+Determining Dimensionality of the Dataset
+```{r Number of PCAs, eval=TRUE}
+###For Dataset KO_Data_1###
+
+#Quantitatively determining number of principal components, determine percent of variation associated with each PC
+pct_KO_1 <- Stdev(KO_Data_1_PCA, reduction = "pca")/sum(Stdev(KO_Data_1_PCA, reduction = "pca"))*100
+
+#Calculate cumulative percents for each PC
+cum_KO_1 <- cumsum(pct_KO_1)
+
+#Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+co1_KO_1 <- which(cum_KO_1 > 90 & pct_KO_1 < 5)[1]
+co1_KO_1
+#[1] 40
+
+#Determine the difference between variation of PC and subsequent PC
+co2_KO_1 <- sort(which((pct_KO_1[1:length(pct_KO_1)-1] - pct_KO_1[2:length(pct_KO_1)]) > 0.1), decreasing = T)[1] + 1
+co2_KO_1
+#[1] 18
+
+#Minimum of the two calculations
+pcs_KO_1 <- min(co1_KO_1, co2_KO_1)
+pcs_KO_1
+#[1] 18
+
+###For Dataset WT_Data_1###
+
+#Quantitatively determining number of principal components, determine percent of variation associated with each PC
+pct_WT_1 <- Stdev(WT_Data_1_PCA, reduction = "pca")/sum(Stdev(WT_Data_1_PCA, reduction = "pca"))*100
+
+#Calculate cumulative percents for each PC
+cum_WT_1 <- cumsum(pct_WT_1)
+
+#Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+co1_WT_1 <- which(cum_WT_1 > 90 & pct_WT_1 < 5)[1]
+co1_WT_1
+#[1] 40
+
+#Determine the difference between variation of PC and subsequent PC
+co2_WT_1 <- sort(which((pct_WT_1[1:length(pct_WT_1)-1] - pct_WT_1[2:length(pct_WT_1)]) > 0.1), decreasing = T)[1] + 1
+co2_WT_1
+#[1] 15
+
+#Minimum of the two calculations
+pcs_WT_1 <- min(co1_WT_1, co2_WT_1)
+pcs_WT_1
+#[1] 15
+
+###For Dataset WT_Data_nFeat1500_PCA###
+
+#Quantitatively determining number of principal components, determine percent of variation associated with each PC
+pct_WT_nFeat1500 <- Stdev(WT_Data_nFeat1500_PCA, reduction = "pca")/sum(Stdev(WT_Data_nFeat1500_PCA, reduction = "pca"))*100
+
+#Calculate cumulative percents for each PC
+cum_WT_nFeat1500 <- cumsum(pct_WT_nFeat1500)
+
+#Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+co1_WT_nFeat1500 <- which(cum_WT_nFeat1500 > 90 & pct_WT_nFeat1500 < 5)[1]
+co1_WT_nFeat1500
+#[1] 40
+
+#Determine the difference between variation of PC and subsequent PC
+co2_WT_nFeat1500 <- sort(which((pct_WT_nFeat1500[1:length(pct_WT_nFeat1500)-1] - pct_WT_nFeat1500[2:length(pct_WT_nFeat1500)]) > 0.1), decreasing = T)[1] + 1
+co2_WT_nFeat1500
+#[1] 16
+
+#Minimum of the two calculations
+pcs_WT_nFeat1500 <- min(co1_WT_nFeat1500, co2_WT_nFeat1500)
+pcs_WT_nFeat1500
+#[1] 16
+
+###For Dataset KO_Data_nFeat1500_PCA###
+
+#Quantitatively determining number of principal components, determine percent of variation associated with each PC
+pct_KO_nFeat1500 <- Stdev(KO_Data_nFeat1500_PCA, reduction = "pca")/sum(Stdev(KO_Data_nFeat1500_PCA, reduction = "pca"))*100
+
+#Calculate cumulative percents for each PC
+cum_KO_nFeat1500 <- cumsum(pct_KO_nFeat1500)
+
+#Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
+co1_KO_nFeat1500 <- which(cum_KO_nFeat1500 > 90 & pct_KO_nFeat1500 < 5)[1]
+co1_KO_nFeat1500
+#[1] 40
+
+#Determine the difference between variation of PC and subsequent PC
+co2_KO_nFeat1500 <- sort(which((pct_KO_nFeat1500[1:length(pct_KO_nFeat1500)-1] - pct_KO_nFeat1500[2:length(pct_KO_nFeat1500)]) > 0.1), decreasing = T)[1] + 1
+co2_KO_nFeat1500
+#[1] 13
+
+#Minimum of the two calculations
+pcs_KO_nFeat1500 <- min(co1_KO_nFeat1500, co2_KO_nFeat1500)
+pcs_KO_nFeat1500
+#[1] 13
+
+```
+We need to use:
+WT_Data_1: 15 (pcs_WT_1)
+KO_Data_1: 18 (pcs_KO_1)
+WT_Data_nFeat1500: 16 (pcs_WT_nFeat1500)
+KO_Data_nFeat1500: 13 (pcs_KO_nFeat1500)
+
+Clustering - This requires two functions: FindNeighbors and FindClusters
+
+```{r clustering, eval=TRUE}
+#Resolution is an empiric parameter (values >1.0 will give more clusters and values <1.0 will give fewer clusters, it is recommended to stay between 1.2 and 0.6), I chose a value on the lower side since we will not make conclusions based on this graph - yet
+
+###For Dataset WT_Data_1_PCA###
+WT_Data_PCA_cluster <- FindNeighbors(WT_Data_1_PCA, dims = 1:pcs_WT_1)
+WT_Data_PCA_cluster <- FindClusters(WT_Data_PCA_cluster, resolution = 0.8)
+
+###For Dataset KO_Data_1_PCA###
+KO_Data_PCA_cluster <- FindNeighbors(KO_Data_1_PCA, dims = 1:pcs_KO_1)
+KO_Data_PCA_cluster <- FindClusters(KO_Data_PCA_cluster, resolution = 0.8)
+
+###For Dataset WT_Data_nFeat1500_PCA###
+WT_Data_nFeat1500_PCA_cluster <- FindNeighbors(WT_Data_nFeat1500_PCA, dims = 1:pcs_WT_nFeat1500)
+WT_Data_nFeat1500_PCA_cluster <- FindClusters(WT_Data_nFeat1500_PCA_cluster, resolution = 0.8)
+
+###For Dataset WT_Data_nFeat1500_PCA###
+KO_Data_nFeat1500_PCA_cluster <- FindNeighbors(KO_Data_nFeat1500_PCA, dims = 1:pcs_KO_nFeat1500)
+KO_Data_nFeat1500_PCA_cluster <- FindClusters(KO_Data_nFeat1500_PCA_cluster, resolution = 0.8)
+
+```
+
+Now on to visualizing the data:
+
+Using UMAP
+
+```{r UMAP, eval=TRUE}
+
+###For Dataset WT_Data_1_PCA###
+WT_Data_UMAP <- RunUMAP(WT_Data_PCA_cluster, dims = 1:pcs_WT_1)
+DimPlot(WT_Data_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(WT_Data_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_UMAP.rds"))
+#WT_Data_UMAP <- readRDS("WT_Data_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_UMAP.rds"))
+
+###For Dataset KO_Data_1_PCA###
+KO_Data_UMAP <- RunUMAP(KO_Data_PCA_cluster, dims = 1:pcs_KO_1)
+DimPlot(KO_Data_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_UMAP.rds"))
+#KO_Data_UMAP <- readRDS("KO_Data_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_UMAP.rds"))
+
+###For Dataset WT_Data_1_PCA###
+WT_Data_nFeat1500_UMAP <- RunUMAP(WT_Data_nFeat1500_PCA_cluster, dims = 1:pcs_WT_nFeat1500)
+DimPlot(WT_Data_nFeat1500_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(WT_Data_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_UMAP.rds"))
+#WT_Data_nFeat1500_UMAP <- readRDS("WT_Data_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_UMAP.rds"))
+
+###For Dataset KO_Data_1_PCA###
+KO_Data_nFeat1500_UMAP <- RunUMAP(KO_Data_nFeat1500_PCA_cluster, dims = 1:pcs_KO_nFeat1500)
+DimPlot(KO_Data_nFeat1500_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_UMAP.rds"))
+#KO_Data_nFeat1500_UMAP <- readRDS("KO_Data_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_UMAP.rds"))
+
+```
+
+
+Run feature plots to detect cluster-specific genes to get an idea of possible cell identities
+
+```{r GeneExpression, eval=TRUE}
+#I ran this code for all 4 datasets to detect neurons and glia
+
+FeaturePlot(KO_Data_nFeat1500_UMAP, features = c("Elavl4"), cols = c("lightgrey", "red"))
+
+FeaturePlot(KO_Data_nFeat1500_UMAP, features = c("Plp1"), cols = c("lightgrey", "red"))
+
+FeaturePlot(KO_Data_nFeat1500_UMAP, features = c("Sox10"), cols = c("lightgrey", "red"))
+
+FeaturePlot(KO_Data_nFeat1500_UMAP, features = c("Tubb3"), cols = c("lightgrey", "red"))
+
+#I ran this code for all 4 datasets to detect SMC/ICC/PDGFRA/Epithelial Cells
+
+FeaturePlot(WT_Data_UMAP, features = c("Kit"), cols = c("lightgrey", "red"))
+
+FeaturePlot(WT_Data_UMAP, features = c("Epcam"), cols = c("lightgrey", "red"))
+
+FeaturePlot(WT_Data_UMAP, features = c("Actg2"), cols = c("lightgrey", "red"))
+
+FeaturePlot(WT_Data_UMAP, features = c("Pdgfra"), cols = c("lightgrey", "red"))
+
+```
+
+After looking at the expression of non-neuronal and non-glial genes in the dataset, I decided that we need to remove:
+WT_Data_1: cluster 15
+KO_Data_1: cluster 19
+WT_Data_nFeat1500: cluster 16
+KO_Data_nFeat1500: cluster 19
+
+```{r Remove other cells, eval=TRUE}
+#Removing the non-Neuron/non-Glia clusters from our data sets
+
+WT_Data_UMAP_1 <- subset(WT_Data_UMAP, ident = "15", invert = TRUE)
+KO_Data_UMAP_1 <- subset(KO_Data_UMAP, ident = "19", invert = TRUE)
+KO_Data_nFeat1500_UMAP_1 <- subset(KO_Data_nFeat1500_UMAP, ident = "19", invert = TRUE)
+WT_Data_nFeat1500_UMAP_1 <- subset(WT_Data_nFeat1500_UMAP, ident = "16", invert = TRUE)
+```
+
+To get numbers of cells per cluster, mean UMI per cluster, and mean number of unique genes (features) per cluster
+
+```{r Desciptive Stats, eval=TRUE}
+#library(data.table)
+#library(magrittr)
+md <- WT_Data_UMAP@meta.data %>% as.data.table
+md[, .N, by = "seurat_clusters"]
+
+#This is what "md" actually looks like:
+#head (md)
+### orig.ident nCount_RNA nFeature_RNA percent.mt nCount_SCT nFeature_SCT SCT_snn_res.0.8 seurat_clusters
+#1: KO_Bap1_Data      38313         6195   4.661603       9126         2995              15            15
+#2: KO_Bap1_Data       5461         2300   6.134408       6054         2300              11            11
+#3: KO_Bap1_Data      11575         3700   5.667387       7932         3522              11            11
+#4: KO_Bap1_Data       7478         2652   4.399572       7186         2651               3            3
+#5: KO_Bap1_Data       5468         2149   3.968544       6118         2149               2            2
+#6: KO_Bap1_Data       6984         2890   5.211913       6951         2890               6            6
+
+#To get the mean number of UMIs and unique genes per cluster for each of the 4x datasets:
+
+md <- WT_Data_UMAP@meta.data %>% as.data.table
+names(md)
+#[1] "orig.ident"      "nCount_RNA"      "nFeature_RNA"    "percent.mt"      "nCount_SCT"     
+#[6] "nFeature_SCT"    "SCT_snn_res.0.8" "seurat_clusters"
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#OMG! There is an easier way to get this information:
+#table(Idents(KO_Data_UMAP))
+#And this is the easy way to figure out proportions of total cells in each cluster:
+#prop.table(table(Idents(KO_Data_UMAP)))
+
+
+#Get the mean nFeature_RNA:
+x <- integer(19)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+#for the KO dataset
+
+md <- KO_Data_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nFeature_RNA:
+x <- integer(20)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+#for the KO_nFeat1500 dataset
+
+md <- KO_Data_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nFeature_RNA:
+x <- integer(19)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+#for the WT_nFeat1500 dataset
+
+md <- WT_Data_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nFeature_RNA:
+x <- integer(19)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+```
+
+In order to feel comfortable designating cell type identities to each cluster, I will get spreadsheets with differential expression for each data set
+
+```{r Differential Gene Expression, eval=TRUE}
+
+#FindAllMarkers(WT_Data_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(WT_Data_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WT_Data_AllClusters.csv")
+
+#FindAllMarkers(KO_Data_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(KO_Data_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\KO_Data_AllClusters.csv")
+
+#FindAllMarkers(WT_Data_nFeat1500_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(WT_Data_nFeat1500_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WT_Data_nFeat1500_AllClusters.csv")
+
+#FindAllMarkers(KO_Data_nFeat1500_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(KO_Data_nFeat1500_UMAP_1, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\KO_Data_nFeat1500_AllClusters.csv")
+```
+
+
+To visualize double-expressors in the 4x datasets
+
+
+```{r Double Expressors, eval=TRUE}
+
+FeaturePlot(WT_Data_UMAP,features = c("Plp1","Tubb3"), cols = c("lightgrey", "blue4", "red3"),blend=TRUE,blend.threshold = 0.2)  
+#blendthreshold allos me to select where I want to draw the division between weak and strong expressor - this is an arbitrary choice. I chose the threshold on the lower side since the double expressor cells do not express a lot of either Plp1 or Tubb3
+
+FeaturePlot(KO_Data_UMAP,features = c("Plp1","Tubb3"), cols = c("lightgrey", "blue4", "red3"),blend=TRUE,blend.threshold = 0.2) 
+
+#It turns out that the best color combination to visualize the blended expression is actually:
+#cols = c("white", "blue4", "red3")
+#In this case, we actually do not see the cells with low expression levels at all
+
+  
+```
+
+Of note, when I compare the number of double expressors in the nFeat1500 vs the more inclusive datasets the double expressors basically disappear with the more stringent criteria
+
+To continue the analysis, I will have to remove glia (and double-expressors) from the datasets -> the data analysis will be continued with only neurons from here on out.
+
+I decided to repeat normalization one more time now that the datasets are smaller and possibly more homogenous after removal of non-neuronal cell types
+
+```{r Subset Data, eval=TRUE}
+#Subsetting the data into neurons only
+KO_Data_Neuron_ONLY <- subset(KO_Data_UMAP, idents = c("9", "10", "13", "14", "15","17"))
+saveRDS(KO_Data_Neuron_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_ONLY.rds"))
+#KO_Data_Neuron_ONLY <- readRDS("KO_Data_Neuron_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_ONLY.rds"))
+
+WT_Data_Neuron_ONLY <- subset(WT_Data_UMAP, idents = c("5", "9", "14", "17", "18"))
+saveRDS(WT_Data_Neuron_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_ONLY.rds"))
+#WT_Data_Neuron_ONLY <- readRDS("WT_Data_Neuron_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_ONLY.rds"))
+
+KO_Data_nFeat1500_Neuron_ONLY <- subset(KO_Data_nFeat1500_UMAP, idents = c("7", "12", "13", "14", "15","17"))
+saveRDS(KO_Data_nFeat1500_Neuron_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Neuron_ONLY.rds"))
+#KO_Data_nFeat1500_Neuron_ONLY <- readRDS("KO_Data_nFeat1500_Neuron_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Neuron_ONLY.rds"))
+
+WT_Data_nFeat1500_Neuron_ONLY <- subset(WT_Data_nFeat1500_UMAP, idents = c("7", "8", "13", "14", "17","18"))
+saveRDS(WT_Data_nFeat1500_Neuron_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Neuron_ONLY.rds"))
+#WT_Data_nFeat1500_Neuron_ONLY <- readRDS("WT_Data_nFeat1500_Neuron_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Neuron_ONLY.rds"))
+
+#It may not be necessary to re-normalize the subsetted datasets using SCTransform, but I will do it anyways:
+KO_Data_Neuron_norm <-  SCTransform(KO_Data_Neuron_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+saveRDS(KO_Data_Neuron_norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_Normalized.rds"))
+#KO_Data_Neuron_Normalized <- readRDS("KO_Data_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_Normalized.rds"))
+
+WT_Data_Neuron_norm <-  SCTransform(WT_Data_Neuron_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+saveRDS(WT_Data_Neuron_norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_Normalized.rds"))
+#WT_Data_Neuron_Normalized <- readRDS("WT_Data_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_Normalized.rds"))
+
+KO_Data_nFeat1500_Neuron_norm <-  SCTransform(KO_Data_nFeat1500_Neuron_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+saveRDS(KO_Data_nFeat1500_Neuron_norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Neuron_Normalized.rds"))
+#KO_Data_nFeat1500_Neuron_Normalized <- readRDS("KO_Data_nFeat1500_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Neuron_Normalized.rds"))
+
+WT_Data_nFeat1500_Neuron_norm <-  SCTransform(WT_Data_nFeat1500_Neuron_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+saveRDS(WT_Data_nFeat1500_Neuron_norm, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Neuron_Normalized.rds"))
+#WT_Data_nFeat1500_Neuron_Normalized <- readRDS("WT_Data_nFeat1500_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Neuron_Normalized.rds"))
+```
+
+Run PCA on the datasets with neurons ONLY
+
+```{r PCA Neurons Only, eval=TRUE}
+WT_Data_Neuron_PCA <- RunPCA(WT_Data_Neuron_norm, verbose = FALSE)
+
+KO_Data_Neuron_PCA <- RunPCA(KO_Data_Neuron_norm, verbose = FALSE)
+
+WT_Data_nFeat1500_Neuron_PCA <- RunPCA(WT_Data_nFeat1500_Neuron_norm, verbose = FALSE)
+
+KO_Data_nFeat1500_Neuron_PCA <- RunPCA(KO_Data_nFeat1500_Neuron_norm, verbose = FALSE)
+
+```
+
+Figure out number of PCAs to use for each of the 4 subsets (see annotation above for full explanation)
+
+```{r Number of PCAs Neurons Only, eval=TRUE}
+pct_KOn <- Stdev(KO_Data_Neuron_PCA, reduction = "pca")/sum(Stdev(KO_Data_Neuron_PCA, reduction = "pca"))*100
+cum_KOn <- cumsum(pct_KOn)
+co1_KOn <- which(cum_KOn > 90 & pct_KOn < 5)[1]
+co2_KOn <- sort(which((pct_KOn[1:length(pct_KOn)-1] - pct_KOn[2:length(pct_KOn)]) > 0.1), decreasing = T)[1] + 1
+pcs_KOn <- min(co1_KOn, co2_KOn)
+pcs_KOn
+#[1] 14
+
+pct_WTn <- Stdev(WT_Data_Neuron_PCA, reduction = "pca")/sum(Stdev(WT_Data_Neuron_PCA, reduction = "pca"))*100
+cum_WTn <- cumsum(pct_WTn)
+co1_WTn <- which(cum_WTn > 90 & pct_WTn < 5)[1]
+co2_WTn <- sort(which((pct_WTn[1:length(pct_WTn)-1] - pct_WTn[2:length(pct_WTn)]) > 0.1), decreasing = T)[1] + 1
+pcs_WTn <- min(co1_WTn, co2_WTn)
+pcs_WTn
+#[1] 16
+
+pct_KOn_1500 <- Stdev(KO_Data_nFeat1500_Neuron_PCA, reduction = "pca")/sum(Stdev(KO_Data_nFeat1500_Neuron_PCA, reduction = "pca"))*100
+cum_KOn_1500 <- cumsum(pct_KOn_1500)
+co1_KOn_1500 <- which(cum_KOn_1500 > 90 & pct_KOn_1500 < 5)[1]
+co2_KOn_1500 <- sort(which((pct_KOn_1500[1:length(pct_KOn_1500)-1] - pct_KOn_1500[2:length(pct_KOn_1500)]) > 0.1), decreasing = T)[1] + 1
+pcs_KOn_1500 <- min(co1_KOn_1500, co2_KOn_1500)
+pcs_KOn_1500
+#[1] 19
+
+pct_WTn_1500 <- Stdev(WT_Data_nFeat1500_Neuron_PCA, reduction = "pca")/sum(Stdev(WT_Data_nFeat1500_Neuron_PCA, reduction = "pca"))*100
+cum_WTn_1500 <- cumsum(pct_WTn_1500)
+co1_WTn_1500 <- which(cum_WTn_1500 > 90 & pct_WTn_1500 < 5)[1]
+co2_WTn_1500 <- sort(which((pct_WTn_1500[1:length(pct_WTn_1500)-1] - pct_WTn_1500[2:length(pct_WTn_1500)]) > 0.1), decreasing = T)[1] + 1
+pcs_WTn_1500 <- min(co1_WTn_1500, co2_WTn_1500)
+pcs_WTn_1500
+#[1] 16
+
+```
+We ended up quantitatively determining the following PCAs:
+WT_Data_Neuron_PCA -> 16
+KO_Data_Neuron_PCA -> 14
+WT_Data_nFeat1500_Neuron_PCA -> 16
+KO_Data_nFeat1500_Neuron_PCA -> 19
+
+Clustering - This requires two functions: FindNeighbors and FindClusters
+
+```{r clustering Neurons Only, eval=TRUE}
+#Resolution is an empiric parameter (values >1.0 will give more clusters and values <1.0 will give fewer clusters, it is recommended to stay between 1.2 and 0.6), I chose a value on the lower side since I cannot make sense of too large of a number of clusters
+
+###For Dataset WT_Neuron_Data_PCA###
+WT_Data_Neuron_PCA_cluster <- FindNeighbors(WT_Data_Neuron_PCA, dims = 1:pcs_WTn)
+WT_Data_Neuron_PCA_cluster <- FindClusters(WT_Data_Neuron_PCA_cluster, resolution = 0.6)
+
+###For Dataset KO_Neuron_Data_PCA###
+KO_Data_Neuron_PCA_cluster <- FindNeighbors(KO_Data_Neuron_PCA, dims = 1:pcs_KOn)
+KO_Data_Neuron_PCA_cluster <- FindClusters(KO_Data_Neuron_PCA_cluster, resolution = 0.6)
+
+###For Dataset WT_Data_nFeat1500_Neuron_PCA###
+WT_Data_nFeat1500_Neuron_PCA_cluster <- FindNeighbors(WT_Data_nFeat1500_Neuron_PCA, dims = 1:pcs_WTn_1500)
+WT_Data_nFeat1500_Neuron_PCA_cluster <- FindClusters(WT_Data_nFeat1500_Neuron_PCA_cluster, resolution = 0.6)
+
+###For Dataset KO_Data_nFeat1500_Neuron_PCA###
+KO_Data_nFeat1500_Neuron_PCA_cluster <- FindNeighbors(KO_Data_nFeat1500_Neuron_PCA, dims = 1:pcs_KOn_1500)
+KO_Data_nFeat1500_Neuron_PCA_cluster <- FindClusters(KO_Data_nFeat1500_Neuron_PCA_cluster, resolution = 0.6)
+
+```
+
+Creating UMAPs and saving .rds files
+
+```{r UMAP Neurons Only, eval=TRUE}
+
+###For Dataset WT_Data_Neuron_PCA###
+WT_Data_Neuron_UMAP <- RunUMAP(WT_Data_Neuron_PCA_cluster, dims = 1:pcs_WTn)
+DimPlot(WT_Data_Neuron_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(WT_Data_Neuron_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_UMAP.rds"))
+#WT_Data_Neuron_UMAP <- readRDS("WT_Data_Neuron_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_UMAP.rds"))
+
+###For Dataset KO_Data_Neuron_PCA###
+KO_Data_Neuron_UMAP <- RunUMAP(KO_Data_Neuron_PCA_cluster, dims = 1:pcs_KOn)
+DimPlot(KO_Data_Neuron_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_Neuron_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_UMAP.rds"))
+#KO_Data_Neuron_UMAP <- readRDS("KO_Data_Neuron_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_UMAP.rds"))
+
+###For Dataset WT_Data_nFeat1500_Neuron_PCA###
+WT_Data_Neuron_nFeat1500_UMAP <- RunUMAP(WT_Data_nFeat1500_Neuron_PCA_cluster, dims = 1:pcs_WTn_1500)
+DimPlot(WT_Data_Neuron_nFeat1500_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(WT_Data_Neuron_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_UMAP.rds"))
+#WT_Data_Neuron_nFeat1500_UMAP <- readRDS("WT_Data_Neuron_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_UMAP.rds"))
+
+###For Dataset KO_Data_nFeat1500_Neuron_PCA###
+KO_Data_Neuron_nFeat1500_UMAP <- RunUMAP(KO_Data_nFeat1500_Neuron_PCA_cluster, dims = 1:pcs_KOn_1500)
+DimPlot(KO_Data_Neuron_nFeat1500_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_Neuron_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_UMAP.rds"))
+#KO_Data_Neuron_nFeat1500_UMAP <- readRDS("KO_Data_Neuron_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_UMAP.rds"))
+
+```
+
+I decided to continue only with the data sets with nFeat >1500 at this point because I am much more convinced of this dataset overall!
+
+
+To figure out neuron subpopulations I will need to look at a number of cell type markers at the same time - a stacked violin plot would be best for that:
+
+Code for stacked violin plots is taken from here: https://divingintogeneticsandgenomics.rbind.io/post/stacked-violin-plot-for-visualizing-single-cell-data-in-seurat/
+
+To call this function:
+features<- c("Slc18a3", "Chat", "Nos1", "Vip")
+StackedVlnPlot(obj = NameofSeuratObject, features = features)
+
+```{r Stacked Violin Plots, eval=TRUE}
+#Create stackedviolinplots
+#library(Seurat)
+#library(patchwork)
+#library(ggplot2)
+
+## remove the x-axis text and tick
+## plot.margin to adjust the white space between each plot.
+## ... pass any arguments to VlnPlot in Seurat
+modify_vlnplot<- function(obj, 
+                          Feature, 
+                          pt.size = 0, 
+                          plot.margin = unit(c(-0.75, 0, -0.75, 0), "cm"),
+                          ...) {
+  p<- VlnPlot(obj, features = Feature, pt.size = pt.size, ... )  + 
+    xlab("") + ylab(Feature) + ggtitle("") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_blank(), 
+          axis.ticks.x = element_blank(), 
+          axis.title.y = element_text(size = rel(1), angle = 0), 
+          axis.text.y = element_text(size = rel(1)), 
+          plot.margin = plot.margin ) 
+  return(p)
+}
+
+## extract the max value of the y axis
+extract_max<- function(p){
+  ymax<- max(ggplot_build(p)$layout$panel_scales_y[[1]]$range$range)
+  return(ceiling(ymax))
+}
+
+
+## main function
+StackedVlnPlot<- function(obj, features,
+                          pt.size = 0, 
+                          plot.margin = unit(c(-0.75, 0, -0.75, 0), "cm"),
+                          ...) {
+  
+  plot_list<- purrr::map(features, function(x) modify_vlnplot(obj = obj,Feature = x, ...))
+  
+  # Add back x-axis title to bottom plot. patchwork is going to support this?
+  plot_list[[length(plot_list)]]<- plot_list[[length(plot_list)]] +
+    theme(axis.text.x=element_text(), axis.ticks.x = element_line())
+  
+  # change the y-axis tick to only max value 
+  ymaxs<- purrr::map_dbl(plot_list, extract_max)
+  plot_list<- purrr::map2(plot_list, ymaxs, function(x,y) x + 
+                            scale_y_continuous(breaks = c(y)) + 
+                            expand_limits(y = y))
+
+  p<- patchwork::wrap_plots(plotlist = plot_list, ncol = 1)
+  return(p)
+}
+
+```
+
+I tried to figure out if I need to use fewer principal components to make the KO and WT data more comparable:
+- I am wondering if it is so difficult to get similar numbers of clusters for both WT and KO samples because there are ~1000 more cells and a greater read-depth in the KO sample than the WT sample and that it thus may be much easier to detect additional, smaller neuron subpopulations in the KO samplee. 
+- Given the additional cells in the Ko sample, I am also not surprised to see a much larger number of principal components recommended by the "quantitative method" to determine the number of PCs to use (rarer cell populations may only resolve if a critical number of cels is present in the sample).
+
+Anyways, for the sake of future readers, I will manually reduce the number of PCs until I get a comparable number of clusters in both WT and KO samples:
+16 PCs: 12 clusters
+14 PCs: 11 clusters
+13 PCs: 11 clusters
+12 PCs: 11 clusters
+11 PCs: 12 clusters
+10 PCs: 12 clusters
+
+```{r Lower PCA and CellType Identity, eval=TRUE}
+KO_Data_nFeat1500_Neuron_low_PCA_cluster <- FindNeighbors(KO_Data_nFeat1500_Neuron_PCA, dims = 1:12)
+KO_Data_nFeat1500_Neuron_low_PCA_cluster <- FindClusters(KO_Data_nFeat1500_Neuron_low_PCA_cluster, resolution = 0.6)
+
+KO_Data_Neuron_nFeat1500_low_UMAP <- RunUMAP(KO_Data_nFeat1500_Neuron_low_PCA_cluster, dims = 1:12)
+
+DimPlot(KO_Data_Neuron_nFeat1500_low_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_Neuron_nFeat1500_low_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_UMAP.rds"))
+#KO_Data_Neuron_nFeat1500_low_UMAP <- readRDS("KO_Data_Neuron_nFeat1500_low_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_UMAP.rds"))
+
+#Visualizing the most important neuron subtype markers
+features<- c("Slc18a3", "Chat", "Nos1", "Vip","Gal")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+
+
+#features<- c("Slc18a3", "Chat", "Penk","Tac1","Slc17a6","Calb1","Calb2","Calcb","Nmu","Grp","Npy","Th","Dbh","Slc18a2","Ddc","Nos1", "Vip","Gal")
+
+
+#Look for IPAN clusters
+features<- c("Calca","Calcb","Nmu","Grp","Met","Cck")
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_low_VlnPlot_Subtype-IPAN.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_VlnPlot_Subtype-IPAN.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\WT_Neuron1500_low_VlnPlot_Subtype-IPAN.pdf")
+StackedVlnPlot(obj = WT_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+#Define interneurons
+features<- c("Penk","Tac1","Slc17a6","Calb1","Calb2","Sst","Gad2")
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_low_VlnPlot_Subtype-IN.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_VlnPlot_Subtype-IN.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\WT_Neuron1500_low_VlnPlot_Subtype-IN.pdf")
+StackedVlnPlot(obj = WT_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+#Define other neuron subtypes
+features<- c("Npy","Th","Dbh","Slc18a2","Ddc","Cartpt","Neurod6")
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_low_VlnPlot_Subtype-OtherNeurons.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\KO_Neuron1500_VlnPlot_Subtype-OtherNeurons.pdf")
+StackedVlnPlot(obj = KO_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\WT_Neuron1500_low_VlnPlot_Subtype-OtherNeurons.pdf")
+StackedVlnPlot(obj = WT_Data_Neuron_nFeat1500_low_UMAP, features = features)
+dev.off()
+
+features<- c("Th","Dbh","Slc18a2","Ddc","Tph2","Neurod6","Ntng1")
+```
+
+To get the number of cells/mean UMI/#unique genes per cluster in each of the two subsetted datasets
+
+```{r descriptive stats neurons, eval=TRUE}
+
+#Cell numbers for all 3 neuron-only datasets
+table(Idents(WT_Data_Neuron_nFeat1500_UMAP))
+table(Idents(KO_Data_Neuron_nFeat1500_UMAP))
+table(Idents(KO_Data_Neuron_nFeat1500_low_UMAP))
+
+#nFeature
+#library(data.table)
+#library(magrittr)
+
+#Get the mean nFeature_RNA:
+x <- integer(19)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+#For the WT_nFeat1500_Neuron dataset
+md <- WT_Data_Neuron_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+#For the KO_nFeat1500_Neuron dataset
+md <- KO_Data_Neuron_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+#For the KO_nFeat1500_Neuron_Low dataset
+md <- KO_Data_Neuron_nFeat1500_low_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nCount_RNA:
+x <- integer(19)
+index <- 0
+for (val in x)
+{
+ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nCount_RNA]
+ClusterMean <- mean(ClusterMeanCol)
+index <- index +1
+#print(index)
+#print (ClusterMean)
+x[index] <- ClusterMean
+}
+x
+
+#For the WT_nFeat1500_Neuron dataset
+md <- WT_Data_Neuron_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+#For the KO_nFeat1500_Neuron dataset
+md <- KO_Data_Neuron_nFeat1500_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+#For the KO_nFeat1500_Neuron_Low dataset
+md <- KO_Data_Neuron_nFeat1500_low_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+```
+
+Get differential Gene Expression for the 3 datasets (computationally determined PCAs as well as empirically lower number of PCAs for KO sample only) before moving on to the combined dataset
+
+```{r differential gene expression, eval=TRUE}
+
+#FindAllMarkers(WT_Data_Neuron_nFeat1500_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(WT_Data_Neuron_nFeat1500_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WT_Data_Neuron_nFeat1500_AllClusters.csv")
+
+#FindAllMarkers(KO_Data_Neuron_nFeat1500_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(KO_Data_Neuron_nFeat1500_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\KO_Data_Neuron_nFeat1500_AllClusters.csv")
+
+#FindAllMarkers(KO_Data_Neuron_nFeat1500_low_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1)
+write.csv(FindAllMarkers(KO_Data_Neuron_nFeat1500_low_UMAP, assay = NULL, features = NULL,logfc.threshold = 0.25,test.use = "wilcox", slot = "data", min.pct = 0.1), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\KO_Data_Neuron_nFeat1500_low_AllClusters.csv")
+```
+
+Return number of cells with normalized expression level >0 for specific neuron subtype markers of interest:
+slot = "data"
+
+If we wanted to select cells based on raw RNA counts >0 for specific neuron subtye markers of interest:
+slot = "counts"
+
+Seurat stores the z-scored residuals of these models in the scale.data slot (slot = "scale.data")
+
+```{r eval=TRUE}
+
+sum(GetAssayData(object = KO_Data_Neuron_nFeat1500_low_UMAP, slot = "data")["Slc17a6",]>0)/nrow(KO_Data_Neuron_nFeat1500_low_UMAP@meta.data)
+
+#Alternative way to get cells expressing a specific gene:
+length(WhichCells(KO_Data_Neuron_nFeat1500_low_UMAP, slot = "data",expression = Slc17a6 > 0))/nrow(KO_Data_Neuron_nFeat1500_low_UMAP@meta.data)
+
+length(WhichCells(WT_Data_Neuron_nFeat1500_UMAP, slot = "data",expression = Slc17a6 > 0))/nrow(WT_Data_Neuron_nFeat1500_UMAP@meta.data)
+
+#I did this for many many more genes (see powerpoint)
+```
+
+Assign condition (WT versus KO) to the dataset
+To retrieve each individual cell's condition assignment:
+object'at'meta.data$Condition
+
+```{r WTvsKO, eval=TRUE}
+#Create vectors of the correct length (number of total cells in dataset) with identical strings in each slot
+WT_ID <- rep("WT",ncol(WT_Data_Neuron_nFeat1500_UMAP))
+KO_ID <- rep("KO",ncol(KO_Data_Neuron_nFeat1500_UMAP))
+
+#Create a new @meta.data column called "Condition" and assign the correct condition type to each sample
+WT_Data_Neuron_nFeat1500_UMAP@meta.data$Condition <- WT_ID
+KO_Data_Neuron_nFeat1500_UMAP@meta.data$Condition <- KO_ID
+KO_Data_Neuron_nFeat1500_low_UMAP@meta.data$Condition <- KO_ID
+
+#And now we save these Seurat objects one more time before we attempt combining the datasets
+saveRDS(KO_Data_Neuron_nFeat1500_low_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_UMAP_PlusCond.rds"))
+#KO_Data_Neuron_nFeat1500_low_UMAP_PlusCond <- readRDS("KO_Data_Neuron_nFeat1500_low_UMAP_PlusCond.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_UMAP_PlusCond.rds"))
+
+saveRDS(KO_Data_Neuron_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_UMAP_PlusCond.rds"))
+#KO_Data_Neuron_nFeat1500_UMAP_PlusCond <- readRDS("KO_Data_Neuron_nFeat1500_UMAP_PlusCond.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_UMAP_PlusCond.rds"))
+
+saveRDS(WT_Data_Neuron_nFeat1500_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_UMAP_PlusCond.rds"))
+#WT_Data_Neuron_nFeat1500_UMAP_PlusCond <- readRDS("WT_Data_Neuron_nFeat1500_UMAP_PlusCond.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_UMAP_PlusCond.rds"))
+
+head(WT_Data_Neuron_nFeat1500_UMAP@meta.data)
+#                   orig.ident nCount_RNA nFeature_RNA percent.mt nCount_SCT nFeature_SCT SCT_snn_res.0.8
+#AAACGAAAGTCAAGCG KO_Bap1_Data      35122         6340   6.631171      16410         4720              13
+#AAACGAATCAACCTTT KO_Bap1_Data       9713         3288   3.541645      13977         3367               7
+#AAAGAACCACTCTCGT KO_Bap1_Data      10435         3436   3.651174      14080         3476               7
+#AAAGGGCCACCGTGCA KO_Bap1_Data      12640         3994   2.856013      14248         3987              14
+#AAAGTCCTCAACACGT KO_Bap1_Data      42863         6908   3.919464      16263         4592               8
+#AAAGTGAAGCTGTCCG KO_Bap1_Data      26220         5697   5.442410      16414         5214              13
+#                 seurat_clusters SCT_snn_res.0.6 Condition
+#AAACGAAAGTCAAGCG               7               7        WT
+#AAACGAATCAACCTTT               0               0        WT
+#AAAGAACCACTCTCGT               0               0        WT
+#AAAGGGCCACCGTGCA               3               3        WT
+#AAAGTCCTCAACACGT              10              10        WT
+#AAAGTGAAGCTGTCCG               2               2        WT
+
+
+```
+
+Rename clusters according to their cluster identity (as well as I can figure this out based on the gene expression data from the Morarach paper)
+
+```{r Rename Clusters, eval=TRUE}
+#It turns out that the order of clusters can be influenced by the order in which clusters are renamed (the one renamed first moves to the rightmost position in the violoinplot x axis)
+
+WT_NewclusterNames <- RenameIdents(object = WT_Data_Neuron_nFeat1500_UMAP, '10' = "ENC12")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '8' = "ENC6/IPAN")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '2' = "ENC4")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '7' = "ENC2")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '3' = "ENC1")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '0' = "Cholinergic Neuroblast")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '5' = "ENC8/9")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '9' = "Nitrergic Neuroblast-2")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '1' = "Nitrergic Neuroblast")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '4' = "Undecided Neuroblast")
+WT_NewclusterNames <- RenameIdents(object = WT_NewclusterNames, '6' = "Progenitor")
+VlnPlot(WT_NewclusterNames,"Nos1")
+
+saveRDS(WT_NewclusterNames, file = file.path("G:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds"))
+#WT_Data_Neuron_nFeat1500_ClusterNames_UMAP <- readRDS("WT_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds", file = file.path("G:\\Single Cell Seq Bap1 Data", "WT_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds"))
+
+#Now on to making all of the violin plots we need:
+features<- c("Slc18a3", "Chat", "Nos1", "Vip")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Penk", "Calb2", "Calb1", "Slc17a6")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Calca", "Calcb", "Nmu", "Grp")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("C1ql1", "Rprml", "Gal", "Gda")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Ndufa4l2", "Sox2", "Sox11", "Ascl1")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Sox10", "Wwtr1", "Hes1", "Foxd3")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Sox10", "Nr4a1", "Hes1", "Foxd3")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+features<- c("Sst", "Ddc", "Dbh", "Npy")
+StackedVlnPlot(obj = WT_NewclusterNames, features = features)
+
+
+#Now on to renaming the KO clusters:
+
+
+KO_NewclusterNames <- RenameIdents(object = KO_Data_Neuron_nFeat1500_low_UMAP, '11' = "ENC6/IPAN")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '6' = "ENC4")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '4' = "ENC4 immature")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '1' = "ENC1-3")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '7' = "Cholinergic Neuroblast")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '0' = "Confused cholinergic neuron")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '5' = "Confused nitrergic neuron")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '2' = "ENC9")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '10' = "Nitrergic Neuroblast-2")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '9' = "Nitrergic Neuroblast")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '3' = "Undecided Neuroblast")
+KO_NewclusterNames <- RenameIdents(object = KO_NewclusterNames, '8' = "Progenitor")
+
+saveRDS(KO_NewclusterNames, file = file.path("G:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_ClusterNames_UMAP.rds"))
+#KO_Data_Neuron_nFeat1500_low_ClusterNames_UMAP <- readRDS("KO_Data_Neuron_nFeat1500_low_ClusterNames_UMAP.rds", file = file.path("G:\\Single Cell Seq Bap1 Data", "KO_Data_Neuron_nFeat1500_low_ClusterNames_UMAP.rds"))
+
+features<- c("Slc18a3", "Chat", "Nos1","Vip")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("Penk", "Calb2", "Calb1", "Slc17a6")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("Calca", "Calcb", "Nmu", "Grp")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("C1ql1", "Rprml", "Gal", "Gda")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("Ndufa4l2", "Sox2", "Sox11", "Ascl1")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("Sox10", "Wwtr1", "Hes1", "Foxd3")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+features<- c("Sox10", "Nr4a1", "Hes1", "Foxd3")
+StackedVlnPlot(obj = KO_NewclusterNames, features = features)
+
+```
+
