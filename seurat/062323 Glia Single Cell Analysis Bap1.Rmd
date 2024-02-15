@@ -1,0 +1,503 @@
+---
+title: "062323 Glia Single Cell Analysis Bap1"
+author: "Sabine Schneider"
+date: "June 23, 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Loading the necessary libraries
+
+```{r load library, include=FALSE}
+library(dplyr)
+library(Matrix)
+library(ggplot2)
+library(Seurat)
+library(gplots)
+```
+
+This is an differential gene expression analysis of only glia - comparing KO and WT cells. The analysis will start with the separate KO and WT datasets which will then be combined and analyzed as a combined dataset.
+
+We will only be using the datasets with minimum >1500 unique genes per cell.
+
+```{r load dataset and subset, include=FALSE}
+
+WT_Data_nFeat1500_UMAP <- readRDS("WT_Data_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_UMAP.rds"))
+
+KO_Data_nFeat1500_UMAP <- readRDS("KO_Data_nFeat1500_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_UMAP.rds"))
+
+#After looking at the expression of non-neuronal and non-glial genes in the dataset, I decided that we need to remove:
+#WT_Data_nFeat1500: cluster 16
+#KO_Data_nFeat1500: cluster 19
+
+KO_Data_nFeat1500_UMAP_1 <- subset(KO_Data_nFeat1500_UMAP, ident = "19", invert = TRUE)
+WT_Data_nFeat1500_UMAP_1 <- subset(WT_Data_nFeat1500_UMAP, ident = "16", invert = TRUE)
+
+#Based on expression of Sox10/Plp1/Elavl4, we should remove the neuron clusters as established previously - one cluster (cluster 12 in the WT sample is kind of nondescript and could be containing bipotent neural/glial precursors because neither glial nor neuronal markers are strongly expressed. This cluster was not added to the neuron dataset so I guess I will add it to the glial dataset but that may not be the correct move... we shall see)
+
+KO_Data_Glia_ONLY <- subset(KO_Data_nFeat1500_UMAP_1, idents = c("0", "1", "2", "3", "4","5","6","8","9","10","11","16","18"))
+saveRDS(KO_Data_Glia_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Glia_ONLY.rds"))
+#KO_Data_Glia_ONLY <- readRDS("KO_Data_Glia_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Glia_ONLY.rds"))
+
+WT_Data_Glia_ONLY <- subset(WT_Data_nFeat1500_UMAP_1, idents = c("0", "1", "2", "3", "4","5","6","9","10","11","12","15"))
+saveRDS(WT_Data_Glia_ONLY, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Glia_ONLY.rds"))
+#WT_Data_Glia_ONLY <- readRDS("WT_Data_Glia_ONLY.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Glia_ONLY.rds"))
+
+
+```
+
+Now on to re-normalizing the smaller dataset and re-doing the clustering
+
+```{r renormalize and cluster, include=FALSE}
+
+KO_Data_Glia_ONLY_norm <-  SCTransform(KO_Data_Glia_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+
+WT_Data_Glia_ONLY_norm <-  SCTransform(WT_Data_Glia_ONLY, vars.to.regress = "percent.mt", verbose = FALSE)
+#This message was displayed - There were 50 or more warnings (use warnings() to see the first 50)
+
+#Run PCA
+WT_Data_Glia_ONLY_norm <- RunPCA(WT_Data_Glia_ONLY_norm, verbose = FALSE)
+
+KO_Data_Glia_ONLY_norm <- RunPCA(KO_Data_Glia_ONLY_norm, verbose = FALSE)
+
+#Quantitatively figure out number of PCAs:
+pct_KOg <- Stdev(KO_Data_Glia_ONLY_norm, reduction = "pca")/sum(Stdev(KO_Data_Glia_ONLY_norm, reduction = "pca"))*100
+cum_KOg <- cumsum(pct_KOg)
+co1_KOg <- which(cum_KOg > 90 & pct_KOg < 5)[1]
+co2_KOg <- sort(which((pct_KOg[1:length(pct_KOg)-1] - pct_KOg[2:length(pct_KOg)]) > 0.1), decreasing = T)[1] + 1
+pcs_KOg <- min(co1_KOg, co2_KOg)
+pcs_KOg
+#[1] 15
+
+pct_WTg <- Stdev(WT_Data_Glia_ONLY_norm, reduction = "pca")/sum(Stdev(WT_Data_Glia_ONLY_norm, reduction = "pca"))*100
+cum_WTg <- cumsum(pct_WTg)
+co1_WTg <- which(cum_KOg > 90 & pct_KOg < 5)[1]
+co2_WTg <- sort(which((pct_WTg[1:length(pct_WTg)-1] - pct_KOg[2:length(pct_WTg)]) > 0.1), decreasing = T)[1] + 1
+pcs_WTg <- min(co1_WTg, co2_WTg)
+pcs_WTg
+#[1] 13
+
+#Resolution is an empiric parameter (values >1.0 will give more clusters and values <1.0 will give fewer clusters, it is recommended to stay between 1.2 and 0.6), I chose a value on the lower side since I cannot make sense of too large of a number of clusters
+
+###For Dataset WT_Neuron_Data_PCA###
+WT_Data_Glia_ONLY_norm <- FindNeighbors(WT_Data_Glia_ONLY_norm, dims = 1:pcs_WTg)
+WT_Data_Glia_ONLY_norm <- FindClusters(WT_Data_Glia_ONLY_norm, resolution = 0.6)
+
+###For Dataset KO_Neuron_Data_PCA###
+KO_Data_Glia_ONLY_norm <- FindNeighbors(KO_Data_Glia_ONLY_norm, dims = 1:pcs_KOg)
+KO_Data_Glia_ONLY_norm <- FindClusters(KO_Data_Glia_ONLY_norm, resolution = 0.6)
+
+#Now on to making a UMAP and then saving these separate .rds files:
+
+###For Dataset WT_Data_Neuron_PCA###
+WT_Data_Glia_UMAP <- RunUMAP(WT_Data_Glia_ONLY_norm, dims = 1:pcs_WTg)
+DimPlot(WT_Data_Glia_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(WT_Data_Glia_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Glia_UMAP.rds"))
+#WT_Data_Glia_UMAP <- readRDS("WT_Data_Glia_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_Glia_UMAP.rds"))
+
+###For Dataset KO_Data_Neuron_PCA###
+KO_Data_Glia_UMAP <- RunUMAP(KO_Data_Glia_ONLY_norm, dims = 1:pcs_KOg)
+DimPlot(KO_Data_Glia_UMAP, reduction = "umap", label= TRUE)
+
+saveRDS(KO_Data_Glia_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Glia_UMAP.rds"))
+#KO_Data_Glia_UMAP <- readRDS("KO_Data_Glia_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_Glia_UMAP.rds"))
+
+#Now set WT and KO IDs:
+WT_ID <- rep("WT",ncol(WT_Data_Glia_UMAP))
+KO_ID <- rep("KO",ncol(KO_Data_Glia_UMAP))
+
+WT_Data_Glia_UMAP@meta.data$orig.ident <- WT_ID
+KO_Data_Glia_UMAP@meta.data$orig.ident <- KO_ID
+
+```
+
+
+Prepping datasets for integration: This part of the code is adapted from the Integrated scSeq Analysis Bap1
+
+By the way, if we ever have to set the identity to "orig.ident":
+Idents(Combined_Neuron_031722_WTvsKO) <- "orig.ident"
+
+``` {r Prep for Integration}
+
+Combined_Glia <- merge(WT_Data_Glia_UMAP, y = KO_Data_Glia_UMAP, add.cell.ids = c("WT", "KO"))
+
+glia.list <- SplitObject(Combined_Glia, split.by = "orig.ident")
+glia.list <- lapply(X = glia.list, FUN = SCTransform)
+
+#SelectVariableFeatures used for dataset integration:
+ENSGlia.features <- SelectIntegrationFeatures(object.list = glia.list, nfeatures = 3000)
+
+options(future.globals.maxSize = 1000 * 1024^2)
+#When I used this, I got the following error: Error in getGlobalsAndPackages(expr, envir = envir, globals = globals) : The total size of the 6 globals exported for future expression ('FUN()') is 2.41 GiB.. This exceeds the maximum allowed size of 0.98 GiB (option 'future.globals.maxSize'). The three largest globals are 'object.list' (2.41 GiB of class 'list'), 'anchor.features' (189.73 KiB of class 'character') and 'IsSCT' (54.51 KiB of class 'function') 
+
+# So I changed it to:
+options(future.globals.maxSize = 2500 * 1024^2)
+
+Combined_Data_Glia <- PrepSCTIntegration(object.list = glia.list, anchor.features = ENSGlia.features,verbose = FALSE)
+
+#Find "IntegrationAnchors" for dataset integration
+ENSGlia.anchors <- FindIntegrationAnchors(object.list = Combined_Data_Glia, normalization.method = "SCT", anchor.features = ENSGlia.features, verbose = FALSE)
+#I again got the same warning message as last time (which github said to ignore):
+#UNRELIABLE VALUE: One of the 'future.apply' iterations ('future_lapply-1') unexpectedly generated random numbers without declaring so. There is a risk that those random numbers are not statistically sound and the overall results might be invalid. To fix this, specify 'future.seed=TRUE'. This ensures that proper, parallel-safe random numbers are produced via the L'Ecuyer-CMRG method. To disable this check, use 'future.seed = NULL', or set option 'future.rng.onMisuse' to "ignore". 
+
+Combined_Data_Glia <- IntegrateData(anchorset = ENSGlia.anchors, normalization.method = "SCT", verbose = FALSE)
+
+saveRDS(Combined_Data_Glia, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Integrated.rds"))
+#Combined_Data_Glia <- readRDS("Combined_Data_Glia_Integrated.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Integrated.rds"))
+
+```
+
+
+```{r Scaling the dataset again}
+#Re-normalizing and re-scaling the data
+
+Norm_Combined_Data_1 <- NormalizeData(object = Combined_Data_Glia,    assay="RNA",                  normalization.method = "LogNormalize", scale.factor = 10000)
+
+Combined_Data_Glia <- ScaleData(Norm_Combined_Data_1, vars.to.regress = "percent.mt")
+
+```
+
+Run PCA
+
+```{r PCA, also scale and center data}
+
+Combined_Data_Glia_PCA <- RunPCA(Combined_Data_Glia, verbose = FALSE)
+
+```
+
+
+Select Number of PCAs (using the computational method)
+
+```{r PCA choice}
+
+pct_ENS <- Stdev(Combined_Data_Glia_PCA, reduction = "pca")/sum(Stdev(Combined_Data_Glia_PCA, reduction = "pca"))*100
+cum_ENS <- cumsum(pct_ENS)
+co1_ENS <- which(cum_ENS > 90 & pct_ENS< 5)[1]
+co1_ENS
+#[1] 42
+co2_ENS <- sort(which((pct_ENS[1:length(pct_ENS)-1] - pct_ENS[2:length(pct_ENS)]) > 0.1), decreasing = T)[1] + 1
+co2_ENS
+#[1] 15
+pcs_ENS <- min(co1_ENS, co2_ENS)
+pcs_ENS
+#[1] 15
+
+```
+
+Should be using >15 PCAs based on computational method
+
+Cluster and visualize dataset on a UMAP
+I empirically chose a lower resolution because I do not think I can interpret too many clusters
+
+```{r UMAP}
+
+Combined_Data_Glia_PCA <- FindNeighbors(Combined_Data_Glia_PCA, dims = 1:pcs_ENS)
+Combined_Data_Glia_PCA <- FindClusters(Combined_Data_Glia_PCA, resolution = 0.6)
+
+Combined_Data_Glia_UMAP <- RunUMAP(Combined_Data_Glia_PCA, dims = 1:pcs_ENS)
+
+saveRDS(Combined_Data_Glia_UMAP, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_UMAP.rds"))
+#Combined_Data_Glia_UMAP <- readRDS("Combined_Data_Glia_UMAP.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_UMAP.rds"))
+
+#To visualize the cells according to condition (WT vs. KO)
+DimPlot(Combined_Data_Glia_UMAP, group.by = c("orig.ident"), pt.size = 1)
+#To visualize all clusters:
+DimPlot(Combined_Data_Glia_UMAP, pt.size = 1)
+
+
+```
+
+
+Differential gene expression for all WT versus all KO cells
+
+Set DefaultAssay to "integrated" means your following analysis will be performed on the "corrected" value. Set DefaultAssay to "RNA" means your following analysis will be performed on the original value (meaning RP10k normalized and mitochrondial RNA %-scaled expression values). -> the output from the differential gene expression analysis using the "corrected" value is not easily interpretable so I will move foward using the original RNA expression values
+
+```{r Differential Gene expression}
+#We have to set the meta.data column which we want to use as ID:
+Combined_Data_Glia_UMAP_WTvsKO <- Combined_Data_Glia_UMAP
+Idents(Combined_Data_Glia_UMAP_WTvsKO) <- "orig.ident"
+
+write.csv(FindAllMarkers(Combined_Data_Glia_UMAP_WTvsKO, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox"), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Combined_Data_Glia.csv")
+
+```
+
+Now on to figuring out differential gene expression across the clusters in the combined dataset. 
+
+``` {r Differential Gene expression across clusters}
+
+MarkerDiff <- FindAllMarkers(Combined_Data_Glia_UMAP, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox")
+
+write.csv(MarkerDiff, file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\Combined_Data_Glia-AllClusters.csv")
+
+```
+
+It looks like cluster 13 is composed of (early) neurons: differentially expressed genes are Ascl1, Hand2, Ednrb, Phox2b, Etv1, Tbx3, Pbx3, Elavl3/4
+
+Cluster 10 also seems to contain early neurons - differentially expressed genes are: Elavl3/4, Ass1, Gal, Nos1, Nmu, Phox2a, Casz1, Ebf1, Etv1, Bnc2, Chat, Slc18a3, , Calb2, Calcb, Ret, Cartpt
+
+So will remove these clusters and redo the differential gene expression just in case.
+
+``` {r Subset dataset and remove young neurons}
+
+Combined_Data_Glia_UMAP_noNeurons <- subset(Combined_Data_Glia_UMAP, idents = c("0", "1", "2", "3", "4","5","6","7","8","9","11","12"))
+saveRDS(Combined_Data_Glia_UMAP_noNeurons, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_noNeurons.rds"))
+#Combined_Data_Glia_noNeurons <- readRDS("Combined_Data_Glia_noNeurons.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_noNeurons.rds"))
+
+MarkerDiff <- FindAllMarkers(Combined_Data_Glia_UMAP_no13, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox")
+
+write.csv(MarkerDiff, file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\Combined_Data_Glia-no13-AllClusters.csv")
+
+```
+
+Most of the data analysis is continuing with the full dataset since I feel like I do not have sufficient justification for removing these clusters.
+
+```To get the number of cells per individual cluster:
+
+``` {r Number of cells per cluster}
+
+
+#library(data.table)
+#library(magrittr)
+
+md <- Combined_Data_Glia_UMAP@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nFeature_RNA:
+x <- integer(14) #we have 14 clusters
+index <- 0
+for (val in x)
+{
+     ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+     ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
+     ClusterMean <- mean(ClusterMeanCol)
+     index <- index +1
+     #print(index)
+     #print (ClusterMean)
+     x[index] <- ClusterMean
+}
+x
+
+#Get the mean nCount_RNA:
+x <- integer(14)
+index <- 0
+for (val in x)
+{
+     ClusterMeanTable <- md1[md1$seurat_clusters==index,]
+     ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nCount_RNA]
+     ClusterMean <- mean(ClusterMeanCol)
+     index <- index +1
+     #print(index)
+     #print (ClusterMean)
+     x[index] <- ClusterMean
+}
+x
+
+#Get numbers of cells from KO or WT samples in each cluster
+table(Combined_Data_Glia_UMAP@meta.data$seurat_clusters, Combined_Data_Glia_UMAP@meta.data$orig.ident)
+
+#To get the proportion of total KO neurons/WT neurons in each cluster of the integrated dataset:
+t <- table(Combined_Data_Glia_UMAP@meta.data$seurat_clusters, Combined_Data_Glia_UMAP@meta.data$orig.ident)
+
+t[,1] <- ((table(Combined_Data_Glia_UMAP@meta.data$seurat_clusters, Combined_Data_Glia_UMAP@meta.data$orig.ident))[,1])*100/10214
+
+t[,2] <- ((table(Combined_Data_Glia_UMAP@meta.data$seurat_clusters, Combined_Data_Glia_UMAP@meta.data$orig.ident))[,2])*100/6551
+
+t
+
+```
+
+1. Add cell identity column and combine clusters into Schwann Cell-Derived, Enteric Glia-like, Neuroblast-like, and Early Neurons
+
+2. Add cell identity column and separate into "actively cycling"" and "not actively cycling""
+
+3. Also Rename Clusters with their new identity
+
+``` {r Combine and Rename Clusters}
+
+#Rename Cluster Identity
+
+Combined_Data_Glia_Names <- Combined_Data_Glia_UMAP
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_UMAP, '0' = "Enteric glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '1' = "Enteric glia, intramuscular")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '2' = "Neuroblast-like, type1")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '3' = "G1/S phase mitotic glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '4' = "S phase mitotic mitotic glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '5' = "SCP-derived glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '6' = "Neuroblast-like, type2")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '7' = "Neuroblast-like, type3")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '8' = "G2/M phase mitotic glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '9' = "S/G2 phase mitotic glia")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '10' = "Early neurons")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '11' = "Proinflammatory/apoptotic glial cells")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '12' = "SCP-derived glia, actively cycling")
+Combined_Data_Glia_Names  <- RenameIdents(object = Combined_Data_Glia_Names, '13' = "Neural precursors, actively cycling")
+
+saveRDS(Combined_Data_Glia_Names, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterNames.rds"))
+#Combined_Data_Glia_ClusterNames <- readRDS("Combined_Data_Glia_ClusterNames.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterNames.rds"))
+
+
+#Create object with cell identity labeled
+Combined_Data_Glia_ClusterID <- Combined_Data_Glia_UMAP
+
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_UMAP, '0' = "Enteric glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '1' = "Enteric glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '2' = "Neuroblast-like")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '3' = "Mitotic glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '4' = "Mitotic glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '5' = "SCP-derived glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '6' = "Neuroblast-like")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '7' = "Neuroblast-like")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '8' = "Mitotic glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '9' = "Mitotic glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '10' = "Early neurons")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '11' = "Proinflammatory/apoptotic cells")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '12' = "SCP-derived glia")
+Combined_Data_Glia_ClusterID  <- RenameIdents(object = Combined_Data_Glia_ClusterID, '13' = "Early neurons")
+
+saveRDS(Combined_Data_Glia_ClusterID, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterID.rds"))
+#Combined_Data_Glia_ClusterID <- readRDS("Combined_Data_Glia_ClusterID.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterID.rds"))
+
+#Create object with mitotic vs non-mitotic identity labeled
+Combined_Data_Glia_Mitosis <- Combined_Data_Glia_UMAP
+
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_UMAP, '0' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '1' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '2' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '3' = "Actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '4' = "Actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '5' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '6' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '7' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '8' = "Actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '9' = "Actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '10' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '11' = "Not actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '12' = "Actively cycling")
+Combined_Data_Glia_Mitosis  <- RenameIdents(object = Combined_Data_Glia_Mitosis, '13' = "Actively cycling")
+
+saveRDS(Combined_Data_Glia_Mitosis, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Mitosis.rds"))
+#Combined_Data_Glia_Mitosis <- readRDS("Combined_Data_Glia_Mitosis.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Mitosis.rds"))
+
+```
+
+I just realized that maybe only a single early neuroblast cluster exists and everything else is a version of glial cell, so I wil rename clusters according to that understanding:
+
+``` {r Rename Clusters take 2}
+Combined_Data_Glia_ClusterID1 <- Combined_Data_Glia_UMAP
+
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_UMAP, '10' = "Early neurons")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '0' = "Enteric glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '1' = "Enteric glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '2' = "Enteric glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '3' = "Mitotic glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '4' = "Mitotic glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '5' = "SCP-derived glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '6' = "Enteric glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '7' = "Neuroblasts")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '8' = "Mitotic glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '9' = "Mitotic glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '11' = "Proinflammatory/apoptotic cells")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '12' = "SCP-derived glia")
+Combined_Data_Glia_ClusterID1  <- RenameIdents(object = Combined_Data_Glia_ClusterID1, '13' = "Neuroblasts")
+
+saveRDS(Combined_Data_Glia_ClusterID1, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Cluster_v2.rds"))
+#Combined_Data_Glia_Cluster_v2 <- readRDS("Combined_Data_Glia_Cluster_v2.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_Cluster_v2.rds"))
+
+Combined_Data_Glia_Names1 <- Combined_Data_Glia_UMAP
+
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_UMAP, '6' = "Enteric glia, type 4")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '1' = "Enteric glia, type 3")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '2' = "Enteric glia, type 2")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '0' = "Enteric glia, type 1")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '3' = "G1/S phase mitotic glia")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '4' = "S phase mitotic mitotic glia")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '9' = "S/G2 phase mitotic glia")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '8' = "G2/M phase mitotic glia")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '11' = "Proinflammatory/apoptotic glial cells")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '7' = "Neuroblast-like")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '13' = "Neuroblasts, actively cycling")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '5' = "SCP-derived glia")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '12' = "SCP-derived glia, actively cycling")
+Combined_Data_Glia_Names1  <- RenameIdents(object = Combined_Data_Glia_Names1, '10' = "Early neurons")
+
+saveRDS(Combined_Data_Glia_Names1, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterNames_v2.rds"))
+#Combined_Data_Glia_ClusterNames_v2 <- readRDS("Combined_Data_Glia_ClusterNames_v2.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Glia_ClusterNames_v2.rds"))
+
+```
+
+``` {r WTvsKO gene expression}
+
+Combined_Data_Glia_Namesv2_WTvsKO <- Combined_Data_Glia_ClusterNames_v2
+Idents(Combined_Data_Glia_Namesv2_WTvsKO) <- "orig.ident"
+
+write.csv(FindAllMarkers(Combined_Data_Glia_Namesv2_WTvsKO, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox"), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Glia_Combined_Data_Norm.csv")
+
+```
+
+Make stacked violinplots for the paper:
+
+``` {r stacked violinplots}
+modify_vlnplot<- function(obj, 
+                          Feature, 
+                          pt.size = 0, 
+                          plot.margin = unit(c(-0.75, 0, -0.75, 0), "cm"),
+                          ...) {
+  p<- VlnPlot(obj, features = Feature, pt.size = pt.size, ... )  + 
+    xlab("") + ylab(Feature) + ggtitle("") + 
+    theme(legend.position = "none", 
+          axis.text.x = element_blank(), 
+          axis.ticks.x = element_blank(), 
+          axis.title.y = element_text(size = rel(1), angle = 0), 
+          axis.text.y = element_text(size = rel(1)), 
+          plot.margin = plot.margin ) 
+  return(p)
+}
+
+## extract the max value of the y axis
+extract_max<- function(p){
+  ymax<- max(ggplot_build(p)$layout$panel_scales_y[[1]]$range$range)
+  return(ceiling(ymax))
+}
+
+
+## main function
+StackedVlnPlot<- function(obj, features,
+                          pt.size = 0, 
+                          plot.margin = unit(c(-0.75, 0, -0.75, 0), "cm"),
+                          ...) {
+  
+  plot_list<- purrr::map(features, function(x) modify_vlnplot(obj = obj,Feature = x, ...))
+  
+  # Add back x-axis title to bottom plot. patchwork is going to support this?
+  plot_list[[length(plot_list)]]<- plot_list[[length(plot_list)]] +
+    theme(axis.text.x=element_text(), axis.ticks.x = element_line())
+  
+  # change the y-axis tick to only max value 
+  ymaxs<- purrr::map_dbl(plot_list, extract_max)
+  plot_list<- purrr::map2(plot_list, ymaxs, function(x,y) x + 
+                            scale_y_continuous(breaks = c(y)) + 
+                            expand_limits(y = y))
+
+  p<- patchwork::wrap_plots(plotlist = plot_list, ncol = 1)
+  return(p)
+}
+
+features <- c("Plp1","S100b","Gfap","Apoe","Entpd2","Dhh")
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\StackedVlnPlot_Glia_Subtypes-Plp1-S100b-Gfap-Apoe-Entpd2-Dhh.pdf")
+StackedVlnPlot(obj = Combined_Data_Glia_ClusterID1, features = features)
+dev.off()
+
+
+features <- c("Nr4a1","Phox2b","Ascl1","Ret","Tubb3","Actg2")
+
+pdf(file="F:\\Single Cell Seq Bap1 Data\\Plots and Figures\\StackedVlnPlot_Glia_Subtypes-Nr4a1-Phox2b-Ascl1-Ret-Tubb3-Actg2_1.pdf")
+StackedVlnPlot(obj = Combined_Data_Glia_ClusterID1, features = features)
+dev.off()
+
+
