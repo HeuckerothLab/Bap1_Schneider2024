@@ -1,0 +1,170 @@
+---
+title: "Integration of WT and KO data with Glia and Neurons"
+subtitle: "Following Seurat 4 Integration Methods (https://satijalab.org/seurat/articles/integration_introduction.html)"
+author: "Kat Beigel (beigelk@chop.edu)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include = FALSE,  results = 'hide', warning=FALSE, message=FALSE, error=FALSE}
+
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(tidyverse)
+library(scales)
+```
+
+```{r Load files}
+
+datadir <- "Integrate_Glia+Neurons/scRNA_data/"
+outdir <- "Integrate_Glia+Neurons/"
+
+metadir <- "scRNA_data/"
+
+wt_glia_neurons <- readRDS(paste0(datadir, "WT_Data_nFeat1500_UMAP.rds"))
+DimPlot(wt_glia_neurons)
+
+ko_glia_neurons <- readRDS(paste0(datadir, "KO_Data_nFeat1500_UMAP.rds"))
+DimPlot(ko_glia_neurons)
+
+pdf(file=paste0(outdir = "dimplots.pdf"))
+
+DimPlot(wt_glia_neurons)
+DimPlot(ko_glia_neurons)
+
+dev.off()
+
+```
+
+```{r}
+
+wt_glia_neurons@meta.data$orig.ident <- rep("WT", ncol(wt_glia_neurons))
+
+ko_glia_neurons@meta.data$orig.ident <- rep("KO", ncol(ko_glia_neurons))
+
+```
+
+```{r Merge data}
+
+# INTEGRATE DATA
+# https://satijalab.org/seurat/articles/integration_introduction.html
+# split the dataset into a list of two seurat objects (stim and CTRL)
+glia_neurons <- merge(wt_glia_neurons, y = ko_glia_neurons, add.cell.ids = c("WT", "KO"), project = "Glia+Neurons")
+
+glia_neurons_list <- SplitObject(glia_neurons, split.by = "orig.ident")
+
+# https://satijalab.org/seurat/articles/integration_introduction.html#performing-integration-on-datasets-normalized-with-sctransform
+# Normalize datasets individually by SCTransform()
+glia_neurons_list <- lapply(X = glia_neurons_list, FUN = SCTransform)
+
+# select features that are repeatedly variable across datasets for integration
+features <- SelectIntegrationFeatures(object.list = glia_neurons_list, nfeatures = 3000)
+
+#Run the PrepSCTIntegration() function prior to identifying anchors
+glia_neurons_list <- PrepSCTIntegration(object.list = glia_neurons_list, anchor.features = features)
+
+# When running FindIntegrationAnchors(), and IntegrateData(), set the normalization.method parameter to the value SCT.
+glia_neurons_anchors <- FindIntegrationAnchors(object.list = glia_neurons_list, anchor.features = features, normalization.method = "SCT")
+glia_neurons_integrated <- IntegrateData(anchorset = glia_neurons_anchors, normalization.method = "SCT")
+
+saveRDS(glia_neurons_integrated, paste0(datadir, "Integrated_WT_KO_Glia+Neurons.rds"))
+
+```
+
+
+```{r Integrated Data Analysis}
+
+# specify that we will perform downstream analysis on the corrected data note that the
+# original unmodified data still resides in the 'RNA' assay
+DefaultAssay(glia_neurons_integrated) <- "integrated"
+
+meta_neurons <- read.table(paste0(metadir, "seurat_meta_wt_ko_neuron.csv"), sep=",", header=TRUE, row.names=1) %>%
+  select(barcode, seurat_clusters, cell_type) %>%
+  rename(seurat_clusters_neurons = seurat_clusters)
+
+# Add cell types to seurat objects (for the neurons; label all other cells "glia")
+meta_glia_neurons <- glia_neurons_integrated@meta.data %>%
+  rownames_to_column("barcode")
+
+meta_all <- left_join(meta_glia_neurons, meta_neurons, by = "barcode", unmatched = "error") %>%
+  replace_na(list(cell_type = "Glia")) %>%
+  replace_na(list(seurat_clusters_neurons = 20))
+
+glia_neurons_integrated <- AddMetaData(object = glia_neurons_integrated, metadata = meta_all$cell_type, col.name = 'cell_type')
+
+
+# Run the standard workflow for visualization and clustering
+glia_neurons_integrated <- RunPCA(glia_neurons_integrated, npcs = 50, verbose = FALSE)
+
+# From SS's script: Select number of PCAs using the computational method:
+pct_ENS <- Stdev(glia_neurons_integrated, reduction = "pca")/sum(Stdev(glia_neurons_integrated, reduction = "pca"))*100
+cum_ENS <- cumsum(pct_ENS)
+
+co1_ENS <- which(cum_ENS > 90 & pct_ENS< 5)[1]
+co2_ENS <- sort(which((pct_ENS[1:length(pct_ENS)-1] - pct_ENS[2:length(pct_ENS)]) > 0.1), decreasing = T)[1] + 1
+pcs_ENS <- min(co1_ENS, co2_ENS)
+
+glia_neurons_integrated <- RunUMAP(glia_neurons_integrated, reduction = "pca", dims = 1:pcs_ENS)
+
+glia_neurons_integrated <- FindNeighbors(glia_neurons_integrated, reduction = "pca", dims = 1:pcs_ENS)
+glia_neurons_integrated <- FindClusters(glia_neurons_integrated, resolution = 0.6)
+
+pdf(file=paste0(outdir = "DimPlots_Integrated_glia+neurons.pdf"), width = 12, height = 10)
+
+DimPlot(glia_neurons_integrated)
+DimPlot(glia_neurons_integrated, group.by = "cell_type")
+DimPlot(glia_neurons_integrated, split.by = "orig.ident")
+
+DimPlot(glia_neurons_integrated, group.by = "seurat_clusters")
+
+dev.off()
+
+saveRDS(glia_neurons_integrated, paste0(datadir, "Integrated_WT_KO_Glia+Neurons_UMAP.rds"))
+
+
+
+
+cell_type_list <- c(
+   "Undecided neuroblast",
+   "Undecided neuroblast-2",
+   "Nitrergic neuroblast",
+   "Immature inhibitory motor neuron/ENC9",
+   "Inhibitory motor neuron/ENC9",
+   "Confused neuron",
+   "Cholinergic neuroblast",
+   "Cholinergic neuroblast-2",
+   "Excitatory motor neuron/ENC1",
+   "Excitatory motor neuron/ENC3?",
+   "Immature excitatory motor neuron/ENC4",
+   "Excitatory motor neuron/ENC4",
+   "Interneuron/ENC12",
+   "IPAN/ENC6",
+   "Glia")
+
+ggplotColours <- function(n = 6, h = c(0, 360) + 15){
+  if ((diff(h) %% 360) < 1) h[2] <- h[2] - 360/n
+  hcl(h = (seq(h[1], h[2], length = n)), c = 100, l = 65)
+}
+
+color_list <- c(ggplotColours(n=14))
+
+
+
+# Testing different dim for UMAP
+glia_neurons_integrated <- RunUMAP(glia_neurons_integrated, reduction = "pca", dims = 1:30)
+
+Idents(glia_neurons_integrated) <- "cell_type"
+DimPlot(subset(glia_neurons_integrated, idents = c("Nitrergic neuroblast"), invert = FALSE), label = TRUE, cols = color_list, order = rev(cell_type_list))
+
+DimPlot(glia_neurons_integrated, group.by = "cell_type", label = TRUE, label.size=2)
+DimPlot(glia_neurons_integrated, split.by = "orig.ident")
+
+
+
+```
+
+
+
+
+
