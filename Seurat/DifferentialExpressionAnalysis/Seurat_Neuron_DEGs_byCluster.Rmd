@@ -147,7 +147,7 @@ for (item in 1:length(list_of_clusters)) {
 
 
 ```{r}
-sink("sessionInfo.txt")
+sink("Seurat_Neuron_DEGs_byCluster_sessionInfo.txt")
 sessionInfo()
 sink()
 ```
