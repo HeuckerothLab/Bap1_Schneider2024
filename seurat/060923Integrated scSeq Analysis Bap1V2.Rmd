@@ -1,0 +1,420 @@
+---
+title: "060923_V2_Integrated scSeq Analysis Bap1"
+author: "Sabine Schneider"
+date: "June 09, 2023"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+Load WT and KO datasets needed for this integrated analysis and load relevant libraries
+I will combine the already normalized neuron-only where all cells with mitochondrial RNA percentage >10%, any "cell" with <1500 unique genes, and >50000 unique molecular identifiers were removed
+
+```{r load datasets and libraries}
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+#library(data.table)
+#library(magrittr)
+#library(dplyr)
+#library(Matrix)
+#library(gplots)
+
+WT_Data_Neuron_nFeat1500_0317 <- readRDS("WT_Data_Neuron_nFeat1500_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "WT_Data_nFeat1500_Neuron_Normalized.rds"))
+
+KO_Data_Neuron_nFeat1500_0317 <- readRDS("KO_Data_Neuron_nFeat1500_Neuron_Normalized.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "KO_Data_nFeat1500_Neuron_Normalized.rds"))
+```
+
+To integrate these datasets, I am following the instructions found here:
+https://satijalab.org/seurat/archive/v3.1/integration.html
+
+They recommend running SCTransform on each object separately (which I already did for my separate analysis of the datasets.
+
+BUT this time around, I used the subsetted datasets with only neurons after normalization but BEFORE PCAs were determined again. 
+
+For SelectVariableFeatures, I will start with the default of the 3000 most variable genes.
+-> In order to choose the number of nFeatures to integrate over: 
+"Choose the features to use when integrating multiple datasets. This function ranks features by the number of datasets they are deemed variable in, breaking ties by the median variable feature rank across datasets. It returns the top scoring features by this ranking.
+
+For IntegrateData(): If normalization.method = "SCT", the integrated data is returned to the scale.data slot and can be treated as centered, corrected Pearson residuals.
+
+```{r Prep for Integration}
+#Create vectors of the correct length (number of total cells in dataset) with identical strings in each slot
+WT_ID <- rep("WT",ncol(WT_Data_Neuron_nFeat1500_0317))
+KO_ID <- rep("KO",ncol(KO_Data_Neuron_nFeat1500_0317))
+
+#Assign the correct genotype to each sample
+WT_Data_Neuron_nFeat1500_0317@meta.data$orig.ident <- WT_ID
+KO_Data_Neuron_nFeat1500_0317@meta.data$orig.ident <- KO_ID
+
+#If we ever have to set the identity to "orig.ident":
+#Idents(Combined_Neuron_031722_WTvsKO) <- "orig.ident"
+
+Combined_Neuron_031722 <- merge(WT_Data_Neuron_nFeat1500_0317, y = KO_Data_Neuron_nFeat1500_0317, add.cell.ids = c("WT", "KO"))
+
+neuron.list <- SplitObject(Combined_Neuron_031722, split.by = "orig.ident")
+neuron.list <- lapply(X = neuron.list, FUN = SCTransform)
+
+#SelectVariableFeatures used for dataset integration:
+ENS.features <- SelectIntegrationFeatures(object.list = neuron.list, nfeatures = 3000)
+
+options(future.globals.maxSize = 1000 * 1024^2)
+
+Combined_Data_Neuron_0317 <- PrepSCTIntegration(object.list = neuron.list, anchor.features = ENS.features,verbose = FALSE)
+
+#Find "IntegrationAnchors"
+ENS.anchors <- FindIntegrationAnchors(object.list = Combined_Data_Neuron_0317, normalization.method = "SCT", anchor.features = ENS.features, verbose = FALSE)
+
+#I got the following warning message: 
+#Warning message:
+#UNRELIABLE VALUE: One of the 'future.apply' iterations ('future_lapply-1') unexpectedly generated random numbers without declaring so. There is a risk that those random numbers are not statistically sound and the overall results might be invalid. To fix this, specify 'future.seed=TRUE'. This ensures that proper, parallel-safe random numbers are produced via the L'Ecuyer-CMRG method. To disable this check, use 'future.seed = NULL', or set option 'future.rng.onMisuse' to "ignore". 
+
+#Github advises to ignore this
+
+Combined_Data_Neuron_0317 <- IntegrateData(anchorset = ENS.anchors, normalization.method = "SCT", verbose = FALSE)
+#I got the following warning message: Warning: Adding a command log without an assay associated with it 
+#This is what Seurat team had to say on github: https://github.com/satijalab/seurat/issues/2505
+#"Our integration works on normalized datasets in the data slot (or on the pearson residuals scale.data slot for the SCTransform workflow), which is why your counts slot is empty in the integrated assay. So there is nothing to worry about here."
+
+saveRDS(Combined_Data_Neuron_0317, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_031722_Integrated.rds"))
+#Combined_Data_Neuron_0317 <- readRDS("Combined_Data_Neuron_031722_Integrated.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_031722_Integrated.rds"))
+```
+
+```{r normalization and scaling}
+
+#Somehow could not figure out how to run NormalizeData(), so I ended up only running ScaleData
+#Combined_Data_Neuron_0317 <- NormalizeData(object = Combined_Data_Neuron_0317,                     normalization.method = "LogNormalize", scale.factor = 1e4)
+
+
+Combined_Data_Neuron_0317 <- ScaleData(Combined_Data_Neuron_0317, vars.to.regress = "percent.mt")
+
+```
+
+Run PCA
+```{r PCA, also scale and center data}
+
+Combined_Data_Neuron_0317_PCA <- RunPCA(Combined_Data_Neuron_0317, verbose = FALSE)
+
+```
+
+
+Select Number of PCAs (using the computational method)
+
+```{r PCA choice}
+
+pct_ENS <- Stdev(Combined_Data_Neuron_0317_PCA, reduction = "pca")/sum(Stdev(Combined_Data_Neuron_0317_PCA, reduction = "pca"))*100
+cum_ENS <- cumsum(pct_ENS)
+co1_ENS <- which(cum_ENS > 90 & pct_ENS< 5)[1]
+co1_ENS
+#[1] 41
+co2_ENS <- sort(which((pct_ENS[1:length(pct_ENS)-1] - pct_ENS[2:length(pct_ENS)]) > 0.1), decreasing = T)[1] + 1
+co2_ENS
+#[1] 15
+pcs_ENS <- min(co1_ENS, co2_ENS)
+pcs_ENS
+#[1] 15
+
+```
+Should be using >15 PCAs based on computational method
+
+Cluster and visualize dataset on a UMAP
+I empirically chose a lower resolution because I do not think I can interpret more than 13 neuron clusters
+
+```{r UMAP}
+Combined_Data_Neuron_0317_PCA_cluster <- FindNeighbors(Combined_Data_Neuron_0317_PCA, dims = 1:pcs_ENS)
+Combined_Data_Neuron_0317_PCA_cluster <- FindClusters(Combined_Data_Neuron_0317_PCA_cluster, resolution = 0.6)
+
+Combined_Data_Neuron_UMAP_0317 <- RunUMAP(Combined_Data_Neuron_0317_PCA_cluster, dims = 1:pcs_ENS)
+
+saveRDS(Combined_Data_Neuron_UMAP_0317, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_UMAP_031722.rds"))
+#Combined_Data_Neuron_UMAP_0317 <- readRDS("Combined_Data_Neuron_UMAP_031722.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_UMAP_031722.rds"))
+
+#To visualize the cells according to condition (WT vs. KO)
+DimPlot(Combined_Data_Neuron_UMAP_0317, group.by = c("orig.ident"), pt.size = 1)
+#To visualize all clusters:
+DimPlot(Combined_Data_Neuron_UMAP_0317, pt.size = 1)
+
+#To create a dataset with lower cluster numbers:
+Combined_Data_Neuron_0317_PCA_cluster_PC10 <- FindNeighbors(Combined_Data_Neuron_0317_PCA, dims = 1:10)
+Combined_Data_Neuron_0317_PCA_cluster_PC10 <- FindClusters(Combined_Data_Neuron_0317_PCA_cluster, resolution = 0.6)
+
+Combined_Data_Neuron_UMAP_0317_PC10 <- RunUMAP(Combined_Data_Neuron_0317_PCA_cluster_PC10, dims = 1:10)
+#for the session on 03/17/2022, accidentally called the file Combined_Data_Neuron_UMAP_0317_Pc10
+
+saveRDS(Combined_Data_Neuron_UMAP_0317_PC10, file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_UMAP_031722_PC10.rds"))
+#Combined_Data_Neuron_UMAP_0317_PC10 <- readRDS("Combined_Data_Neuron_UMAP_031722_PC10.rds", file = file.path("F:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_UMAP_031722_PC10.rds"))
+
+#To visualize the cells according to condition (WT vs. KO)
+DimPlot(Combined_Data_Neuron_UMAP_0317_PC10, group.by = c("orig.ident"), pt.size = 1)
+#To visualize all clusters:
+DimPlot(Combined_Data_Neuron_UMAP_0317_PC10, pt.size = 1)
+
+
+```
+
+
+I will continue with the dataset with 16PCs based on the plots I saw since reducing the PCs did not affect cluster number at all and I am already at a resolution of 0.6 for a dataset of over 3000 cells
+
+-----------------------------------------------------------
+
+Differential gene expression for all WT versus all KO cells
+
+Set DefaultAssay to "integrated" means your following analysis will be performed on the "corrected" value. Set DefaultAssay to "RNA" means your following analysis will be performed on the original value (meaning RP10k normalized and mitochrondial RNA %-scaled expression values). -> the output from the differential gene expression analysis using the "corrected" value is not easily interpretable so I will move foward using the original RNA expression values
+
+```{r Differential Gene expression}
+#We have to set the meta.data column which we want to use as ID:
+Combined_Data_Neuron_UMAP_0317_WTvsKO <- Combined_Data_Neuron_UMAP_0317
+Idents(Combined_Data_Neuron_UMAP_0317_WTvsKO) <- "orig.ident"
+
+write.csv(FindAllMarkers(Combined_Data_Neuron_UMAP_0317_WTvsKO, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox"), file = "F:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Combined_Data_0317.csv")
+
+#To visualize gene expression as a violin plot:
+#group.by allows you to see all WT versus all KO cells
+VlnPlot(Combined_Data_Neuron_UMAP_0317,"Ddc",assay="RNA",group.by="orig.ident")
+#split.by allows you to see WT versus KO cells for each cluster
+VlnPlot(Combined_Data_Neuron_UMAP_0317,"Slc17a6",assay="RNA",split.by="orig.ident",pt.size=0)
+
+
+```
+
+Now on to figuring out differential gene expression across the clusters in the combined dataset. 
+
+``` {r Differential Gene expression across clusters}
+
+MarkerDiff <- FindAllMarkers(Combined_Data, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox")
+
+write.csv(MarkerDiff, file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Combined_Data_0317-AllClusters.csv")
+
+#I just realized that my RNA slot was not properly scaled and normalized in the combined dataset:
+
+ForDE_Combined_Data <- Combined_Data_Neuron_UMAP_0317
+
+Norm_Combined_Data <- NormalizeData(object = ForDE_Combined_Data,    assay="RNA",                  normalization.method = "LogNormalize", scale.factor = 10000)
+
+Norm_Combined_Data_1 <- ScaleData(Norm_Combined_Data, vars.to.regress = "percent.mt")
+
+#And now on to repeating the differential gene expression:
+MarkerDiff <- FindAllMarkers(Norm_Combined_Data_1, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox")
+
+write.csv(MarkerDiff, file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Combined_Data_0317-AllClusters-Norm.csv")
+
+#It looks like I need to plot normalized data from the "RNA" assay to get normally interpetable VlnPlots:
+VlnPlot(Norm_Combined_Data_1,assay="RNA","Nos1")
+
+
+#I just realized that my differential gene expression compairing all KO and WT cells was not run on the normalized data, so here we go:
+
+Combined_Norm_WTvsKO <- Norm_Combined_Data_1
+Idents(Combined_Norm_WTvsKO) <- "orig.ident"
+
+write.csv(FindAllMarkers(Combined_Norm_WTvsKO, assay = "RNA", features = NULL,logfc.threshold = 0.25,min.pct = 0.1,test.use = "wilcox"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\WTvsKO_Combined_Data_Norm.csv")
+
+#To visualize gene expression for WT versus KO
+VlnPlot(Norm_Combined_Data_1,"Slc17a6",assay="RNA",split.by="orig.ident",pt.size=0)
+
+
+
+```
+
+To get the number of cells per individual cluster:
+
+``` {r Number of cells per cluster}
+
+
+#library(data.table)
+#library(magrittr)
+
+md <- Combined_Norm_WTvsKO@meta.data %>% as.data.table
+md1 <- md[order(+md$"seurat_clusters"),]
+
+#Get the mean nFeature_RNA:
+x <- integer(14) #we have 14 clusters
+index <- 0
+for (val in x)
++ {
++     ClusterMeanTable <- md1[md1$seurat_clusters==index,]
++     ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nFeature_RNA]
++     ClusterMean <- mean(ClusterMeanCol)
++     index <- index +1
++     #print(index)
++     #print (ClusterMean)
++     x[index] <- ClusterMean
++ }
+x
+
+#Get the mean nCount_RNA:
+x <- integer(14)
+index <- 0
+for (val in x)
++ {
++     ClusterMeanTable <- md1[md1$seurat_clusters==index,]
++     ClusterMeanCol <- ClusterMeanTable[,ClusterMeanTable$nCount_RNA]
++     ClusterMean <- mean(ClusterMeanCol)
++     index <- index +1
++     #print(index)
++     #print (ClusterMean)
++     x[index] <- ClusterMean
++ }
+x
+
+#Get numbers of cells from KO or WT samples in each cluster
+table(Combined_Norm_WTvsKO@meta.data$integrated_snn_res.0.6, Combined_Norm_WTvsKO@meta.data$orig.ident)
+
+#To get the proportion of total KO neurons/WT neurons in each cluster of the integrated dataset:
+t <- table(Combined_Norm_WTvsKO@meta.data$integrated_snn_res.0.6, Combined_Norm_WTvsKO@meta.data$orig.ident)
+
+t[,1] <- (table(Combined_Norm_WTvsKO@meta.data$integrated_snn_res.0.6, Combined_Norm_WTvsKO@meta.data$orig.ident))[,1]/2382
+
+t[,2] <- (table(Combined_Norm_WTvsKO@meta.data$integrated_snn_res.0.6, Combined_Norm_WTvsKO@meta.data$orig.ident))[,2]/1392
+
+t
+
+```
+
+Now on to naming the clusters in the combined dataset... as best as I can...
+
+``` {r Naming clusters}
+
+CombinedClusterNames <- RenameIdents(object = Norm_Combined_Data_1, '9' = "IPAN/ENC6")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '10' = "Interneuron/ENC12")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '7' = "Excitatory motor neuron/ENC4")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '12' = "Immature excitatory motor neuron/ENC4")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '8' = "Excitatory motor neuron/ENC3?")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '5' = "Excitatory motor neuron/ENC1")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '1' = "Cholinergic neuroblast-2")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '11' = "Cholinergic neuroblast")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '4' = "Confused neuron")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '2' = "Inhibitory motor neuron/ENC9")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '6' = "Immature inhibitory motor neuron/ENC9")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '0' = "Nitrergic neuroblast")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '13' = "Undecided neuroblast-2")
+CombinedClusterNames <- RenameIdents(object = CombinedClusterNames, '3' = "Undecided neuroblast")
+
+saveRDS(CombinedClusterNames, file = file.path("G:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds"))
+#CombinedData_ClusterNames <- readRDS("Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds", file = file.path("G:\\Single Cell Seq Bap1 Data", "Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds"))
+
+````
+
+Output all of the required stacked violinplots for our paper figure (have to copy the code for the Stacked Violin plot from the RMarkdown file "060923_Single Cell Analysis Bap1.rmd" into the terminal for the function to run properly)
+
+``` {r Stacked violin plots}
+
+
+features<- c("Slc18a3", "Chat", "Nos1", "Vip")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("Penk", "Calb2", "Calb1", "Slc17a6")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("Calca", "Calcb", "Nmu", "Grp")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("C1ql1", "Rprml", "Gal", "Gda")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("Ndufa4l2", "Sox2", "Sox11", "Ascl1")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("Sox10", "Wwtr1", "Hes1", "Foxd3")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+features<- c("Nr4a1", "Ddc", "Dbh", "Npy")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", features = features)
+
+#For all of the violin plots where we compare gene expression of WT and KO per cluster:
+
+features<- c("Calb1", "Calb2", "Slc17a6", "Dbh")
+StackedVlnPlot(obj = CombinedClusterNames, assay = "RNA", split.by="orig.ident", features = features)
+
+#featurePlots to allow me to see the spatial distribution of cells expressing specific genes
+FeaturePlot(obj = CombinedData_ClusterNames, feature ="Dbh", split.by="orig.ident",cols = c("yellow", "brown"))
+
+
+```
+
+Cluster assignments:
+'9' = "IPAN/ENC6"
+'10'= "Interneuron/ENC12"
+'7' = "Excitatory motor neuron/ENC4"
+'12' = "Immature excitatory motor neuron/ENC4"
+'8' = "Excitatory motor neuron/ENC3?"
+'5' = "Excitatory motor neuron/ENC1"
+'1' = "Cholinergic neuroblast-2"
+'11' = "Cholinergic neuroblast"
+'4' = "Confused neuron"
+'2' = "Inhibitory motor neuron/ENC9"
+'6' = "Immature inhibitory motor neuron/ENC9"
+'0' = "Nitrergic neuroblast"
+'13' = "Undecided neuroblast-2"
+'3' = "Undecided neuroblast"
+
+```{r DE for WTvsKO per combined cluster}
+
+#Reloaded the data set on a different day -> Today, the dataset is called: CombinedData_ClusterNames (I somehow cannot keep the names consistent day to day)
+
+#Cluster 9 - IPAN/ENC6
+#Attempt Number 1 - this gave very confusing and non-intuitive results
+write.csv(FindMarkers(CombinedData_ClusterNames, ident.1 = "WT", ident.1 = "KO", group.by = 'orig.ident', subset.ident = "IPAN/ENC6"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\ClusterIPANENC6-9_WTvsKO_122222.csv")
+
+#This is an alternative way to look at differential gene expression for WT and KO per cluster and it gives the same result as the other method used to get differential gene expression
+IPANCluster <- subset(x = CombinedData_ClusterNames, idents = "IPAN/ENC6")
+Idents(IPANCluster) <- "orig.ident"
+write.csv(FindMarkers(IPANCluster, ident.1 = "WT", ident.2 = "KO"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\ClusterIPANENC6-9_WTvsKO_122222.csv")
+
+#Third try - this finally, finally corresponds with what I have been able to visually observe!!! -> We will continue forward with this method
+IPANCluster <- subset(x = CombinedData_ClusterNames, idents = "IPAN/ENC6")
+Idents(IPANCluster) <- "orig.ident"
+write.csv(FindAllMarkers(IPANCluster, assay = "RNA"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\Cluster9_IPANENC6_WTvsKO_122222.csv")
+
+#Cluster 10 - Interneuron/ENC12
+InterneuronCluster <- subset(x = CombinedData_ClusterNames, idents = "Interneuron/ENC12")
+Idents(InterneuronCluster) <- "orig.ident"
+write.csv(FindAllMarkers(InterneuronCluster, assay = "RNA"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\Cluster10_InterneuronENC12_WTvsKO_122222.csv")
+
+
+#Cluster 3 - Undecided Neuroblast
+NeuroblastCluster <- subset(x = CombinedData_ClusterNames, idents = "Undecided neuroblast")
+Idents(InterneuronCluster) <- "orig.ident"
+write.csv(FindAllMarkers(NeuroblastCluster, assay = "RNA"), file = "G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\Cluster3_UndecidedNeuroblast_WTvsKO_122222.csv")
+
+#I then ran out of patience and automated this process:
+
+sequence <- c("Interneuron/ENC12","IPAN/ENC6","Undecided neuroblast","Undecided neuroblast-2","Nitrergic neuroblast","Immature inhibitory motor neuron/ENC9","Inhibitory motor neuron/ENC9","Confused neuron","Cholinergic neuroblast","Cholinergic neuroblast-2","Excitatory motor neuron/ENC1","Excitatory motor neuron/ENC3?","Immature excitatory motor neuron/ENC4","Excitatory motor neuron/ENC4")
+
+names <- c("Interneuron_ENC12","IPAN_ENC6","Undecided Neuroblast","Undecided neuroblast-2","Nitrergic neuroblast","Immature inhibitory motor neuron_ENC9","Inhibitory motor neuron_ENC9","Confused neuron","Cholinergic neuroblast","Cholinergic neuroblast-2","Excitatory motor neuron_ENC1","Excitatory motor neuron_ENC3","Immature excitatory motor neuron_ENC4","Excitatory motor neuron_ENC4")
+
+index <- 1
+
+for (val in sequence)
+{
+  cluster <- subset(x = CombinedData_ClusterNames, idents = val)
+  Idents(cluster) <- "orig.ident"
+  name <- names[index]
+  write.csv(FindAllMarkers(cluster, assay = "RNA"), paste("G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\", name, ".csv"))
+  index <- index + 1
+}
+
+#Of note, for cluster 13 (Undecided neuroblast-2), there were warnings. This is what it said:
+#There were 50 or more warnings (use warnings() to see the first 50)
+#> warnings()
+#Warning messages:
+#1: In wilcox.test.default(x = c(WT_AAGGAATCATCCGGCA = 3.92476237269945,  ... :  cannot compute exact p-value with ties
+#2: In wilcox.test.default(x = c(WT_AAGGAATCATCCGGCA = 5.78525051047276,  ... :  cannot compute exact p-value with ties
+
+
+#To visualize some of the gene expression identified with DE analysis above:
+IPANCluster <- subset(x = CombinedData_ClusterNames, idents = "IPAN/ENC6")
+VlnPlot(obj = IPANCluster, feature ="Sst", assay = "RNA", split.by="orig.ident")
+
+FeaturePlot(obj = CombinedData_ClusterNames, feature ="Sst", split.by="orig.ident",cols = c("yellow", "brown"))
+
+VlnPlot(obj = CombinedData_ClusterNames, feature ="Sst", assay="RNA",split.by="orig.ident", pt.size=0)
+
+#To visualize double expressors
+
+FeaturePlot(obj = CombinedData_ClusterNames, feature =c("Slc18a3","Nos1"),cols = c("blue", "red"),blend=TRUE,pt.size=0.2)
+
+
+```
