@@ -1,0 +1,151 @@
+---
+title: "Bap1 Glia Differential Gene Expression"
+author: "Kat Beigel (beigelk@chop.edu)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Neuron KO. v. WT by cluster, using Seurat v3.1.2
+
+```{bash}
+
+wget https://github.com/satijalab/seurat/archive/refs/tags/v3.1.2.tar.gz
+
+```
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Using renv because I need to use Seurat v3.1.2
+# renv::init(bare = TRUE)
+
+```
+
+```{r}
+
+# install.packages("remotes")
+# install.packages("devtools")
+# 
+# library(remotes)
+# library(devtools)
+# 
+# remotes::install_version("SDMTools", "1.1-221")
+# install_local("Seurat_Glia_DEGs_byCluster/pkg_download/v3.1.2.tar.gz")
+# 
+# install.packages("mgsub")
+# install.packages("tidyverse")
+#
+# renv::snapshot()
+
+```
+
+
+```{r Library}
+
+# Utility 
+library(mgsub)
+library(tidyverse)
+library(xlsx)
+
+# Analysis
+library(Seurat)
+
+```
+
+```{r Directores}
+
+datadir = "Seurat_DifferentialExpression/data"
+resdir = "Seurat_DifferentialExpression/results"
+
+```
+
+```{r Load data, echo=FALSE}
+
+Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP = readRDS(file = file.path(datadir, "Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP.rds"))
+# Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP_update = UpdateSeuratObject(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP)
+
+Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP = AddMetaData(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP,
+                                                               unname(Idents(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP)),
+                                                               col.name = "celltype")
+# Renaming clusters
+# S phase Mitotic Neuroblast <- Undecided Neuroblast-2
+# Immature Nitrergic Neuron <- Immature Inhibitory Motor neuron/ ENC9
+# ENC 8/9 - ENC 12 Precursor <- Confused Neuron
+# Immature cholinergic Neuron <- Cholinergic Neuroblast-2
+# Cholinergic Neuroblast/ ENC4 Precursor <- Immature Excitatory Motor Neuron/ENC4
+
+
+renamed_clusters = tibble(celltype = Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP@meta.data$celltype) %>%
+  mutate(updated_celltype = case_when(celltype == c('Undecided neuroblast-2') ~ ('S phase mitotic neuroblast'),
+                                      celltype == 'Immature inhibitory motor neuron/ENC9' ~ 'Immature nitrergic neuron',
+                                      celltype == 'Confused neuron' ~ 'ENC8/9-ENC12 precursor', 
+                                      celltype == 'Cholinergic neuroblast-2' ~ 'Immature cholinergic neuron', 
+                                      celltype == 'Immature excitatory motor neuron/ENC4' ~ 'Cholinergic Neuroblast ENC4 precursor',
+                                      .default = celltype))
+         
+Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP = AddMetaData(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP,
+                                                               renamed_clusters$updated_celltype,
+                                                               col.name = "updated_celltype")
+
+Idents(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP) = "updated_celltype"
+DimPlot(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP)
+
+Idents(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP) = "orig.ident"
+DimPlot(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP)
+find_all_markers_res_all = FindAllMarkers(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP, assay = "RNA")
+
+write.csv(find_all_markers_res_all, paste0(resdir, '/', 'Neuron/', 'Neurons', '_', 'GeneExpression_ConditionsCompared_AllClusters', '.csv'),
+            quote=FALSE, row.names = TRUE)
+
+write.xlsx(find_all_markers_res_all, file =  paste0(resdir, '/', 'Neuron/', 'Neurons_GeneExpression_ConditionsCompared', '.xlsx'),
+           sheetName = "All_Clusters", col.names = TRUE, row.names = TRUE, append = FALSE)
+
+```
+
+```{r Getting differentially expressed genes}
+# Following S. Schneider's method:
+# index <- 1
+# for (val in sequence)
+# {
+#   cluster <- subset(x = CombinedData_ClusterNames, idents = val)
+#   Idents(cluster) <- "orig.ident"
+#   name <- names[index]
+#   write.csv(FindAllMarkers(cluster, assay = "RNA"), paste("G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\", name, ".csv"))
+#   index <- index + 1
+# }
+
+# Updating this loop to make it easier
+Idents(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP) = "updated_celltype"
+list_of_clusters = unique(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP@meta.data$updated_celltype)
+# names(list_of_clusters) = unique(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP@meta.data$seurat_clusters)
+
+for (item in 1:length(list_of_clusters)) {
+  
+  # clusternum = names(list_of_clusters)[item]
+  cluster = as.character(unname(list_of_clusters[item]))
+
+  cluster_subset <- subset(x = Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP, idents = cluster)
+  
+  Idents(cluster_subset) <- "orig.ident"
+  find_all_markers_res = FindAllMarkers(cluster_subset,
+                                        assay = "RNA")
+
+  # write.csv(find_all_markers_res, paste0(resdir, '/', 'Neuron/', 'Neurons_GeneExpression_ConditionsCompared', '_',
+  #                                        mgsub(cluster, c(' ', ', ', '/'), c('_', '_', '_')), '.csv'),
+  #           quote=FALSE, row.names = TRUE)
+  
+  write.xlsx(find_all_markers_res, file =  paste0(resdir, '/', 'Neuron/', 'Neurons_GeneExpression_ConditionsCompared', '.xlsx'),
+             sheetName =  mgsub(cluster, c(' ', ', ', '/', '\\?'), c('_', '_', '_', '')), col.names = TRUE, row.names = TRUE, append = TRUE)
+  
+  
+  }
+
+```
+
+
+
+
+
+```{r}
+sessionInfo()
+```
