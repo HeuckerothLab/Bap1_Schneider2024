@@ -14,13 +14,13 @@ Glia
 ## RNA velocity analysis (rna_velocity)
 Wildtype (WT)
 - Pre-processing data from Seurat (R)
-- velocyto (CL)
-- scVelo
+- velocyto (sh)
+- scVelo (py)
 
 TyrBap1 (KO)
 - Pre-processing data from Seurat (R)
-- velocyto (CL)
-- scVelo
+- velocyto (sh)
+- scVelo (py)
 
 
 # Pathway analysis
