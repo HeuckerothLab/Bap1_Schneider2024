@@ -7,7 +7,7 @@ output: html_document
 
 # Neuron KO. v. WT by cluster, using Seurat v3.1.2
 
-```{bash}
+```{bash, include=FALSE}
 
 wget https://github.com/satijalab/seurat/archive/refs/tags/v3.1.2.tar.gz
 
