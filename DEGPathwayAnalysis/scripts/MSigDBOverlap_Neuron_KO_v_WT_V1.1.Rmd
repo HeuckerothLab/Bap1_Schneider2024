@@ -113,21 +113,6 @@ write.table(genes_down %>% pull(symbol),
             quote = FALSE,
             col.names = c(paste0(proj, "_", "GenesDown_MSigDBOverlap", "_", version)))
 
-
-# Genes ALL
-genes_all = deg_tbl %>%
-  filter(p_val_adj < 0.05) %>%
-  top_n(200, abs(avg_log2FC)) %>%
-  arrange(desc(abs(avg_log2FC)))
-
-write.table(genes_all %>% pull(gene),
-            file = paste0(res_dir, "MSigDBOverlap_InputLists/", proj, "_",
-                          "GenesAll_MSigDBOverlap", "_", version, ".csv"),
-            row.names = FALSE,
-            quote = FALSE,
-            col.names = c(paste0(proj, "_", "GenesAll_MSigDBOverlap", "_", version)))
-
-
 ```
 
 
