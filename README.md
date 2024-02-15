@@ -3,7 +3,7 @@ Code for Bap1 analyses
 
 
 # Analyses
-## Seurat (v3) analysis (seurat)
+## Seurat analysis (seurat)
 Neuron
 - Pre-processing, integration, cluster markers, and differential expression
 
