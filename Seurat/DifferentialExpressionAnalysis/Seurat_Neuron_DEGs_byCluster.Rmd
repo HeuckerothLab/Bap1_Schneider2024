@@ -1,5 +1,5 @@
 ---
-title: "Bap1 Glia Differential Gene Expression"
+title: "Bap1 Neuron Differential Gene Expression"
 author: "Kat Beigel (beigelk@chop.edu)"
 date: "`r Sys.Date()`"
 output: html_document
@@ -30,7 +30,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # library(devtools)
 # 
 # remotes::install_version("SDMTools", "1.1-221")
-# install_local("Seurat_Glia_DEGs_byCluster/pkg_download/v3.1.2.tar.gz")
+# install_local("Seurat_DifferentialExpression/pkg_download/v3.1.2.tar.gz")
 # 
 # install.packages("mgsub")
 # install.packages("tidyverse")
@@ -147,5 +147,7 @@ for (item in 1:length(list_of_clusters)) {
 
 
 ```{r}
+sink("sessionInfo.txt")
 sessionInfo()
+sink()
 ```
