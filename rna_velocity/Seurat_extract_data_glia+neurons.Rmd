@@ -1,0 +1,186 @@
+---
+title: "Extract metadata from Seurat to integrate with Loom file for scVelo RNA velocity"
+output: html_document
+date: "2023-06-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# main
+library(tidyverse)
+library(Seurat)
+library(SeuratDisk)
+library(viridis)
+library(ggplot2)
+library(scales)
+library(mgsub)
+library(cowplot)
+
+```
+
+### Set the directory for where to read/write data files
+```{r Directories}
+datadir <- "Integrate_Glia+Neurons/scRNA_data/"
+outdir <- "scRNA_data/"
+figdir <- "Seurat_to_RNA_Velocity_Glia+Neurons/figures/"
+#list.files(datadir, recursive = TRUE)
+```
+
+### Load the RDS file from Sabine Schenider's R project
+```{r Load rds Seurat file}
+seu <- readRDS(file = paste0(datadir, "Integrated_WT_KO_Glia+Neurons_UMAP.rds"))
+
+meta_neurons <- read.table(paste0(outdir, "seurat_meta_wt_ko_neuron.csv"), sep=",", header=TRUE, row.names=1) %>%
+  select(barcode, seurat_clusters, cell_type) %>%
+  rename(seurat_clusters_neurons = seurat_clusters)
+
+# Add cell types to seurat objects (for the neurons; label all other cells "glia")
+meta_glia_neurons <- seu@meta.data %>%
+  rownames_to_column("barcode")
+
+meta_all <- left_join(meta_glia_neurons, meta_neurons, by = "barcode", unmatched = "error") %>%
+  replace_na(list(cell_type = "Glia")) %>%
+  replace_na(list(seurat_clusters_neurons = 20))
+
+seu <- AddMetaData(object = seu, metadata = meta_all$cell_type, col.name = 'cell_type')
+seu <- AddMetaData(object = seu, metadata = meta_all$seurat_clusters_neurons, col.name = 'seurat_clusters_neurons')
+
+cell_type_list <- c(
+   "Glia",
+   "Undecided neuroblast",
+   "Undecided neuroblast-2",
+   "Nitrergic neuroblast",
+   "Immature inhibitory motor neuron/ENC9",
+   "Inhibitory motor neuron/ENC9",
+   "Confused neuron",
+   "Cholinergic neuroblast",
+   "Cholinergic neuroblast-2",
+   "Excitatory motor neuron/ENC1",
+   "Excitatory motor neuron/ENC3?",
+   "Immature excitatory motor neuron/ENC4",
+   "Excitatory motor neuron/ENC4",
+   "Interneuron/ENC12",
+   "IPAN/ENC6")
+
+nums <- c(0:14)
+cluster_numbers_in_paper <- mgsub(seu@meta.data$cell_type, cell_type_list, nums, fixed = TRUE)
+seu <- AddMetaData(object = seu, metadata = cluster_numbers_in_paper, col.name = 'cluster_numbers_in_paper')
+
+
+ggplotColours <- function(n = 6, h = c(0, 360) + 15){
+  if ((diff(h) %% 360) < 1) h[2] <- h[2] - 360/n
+  hcl(h = (seq(h[1], h[2], length = n)), c = 100, l = 65)
+}
+
+color_list <- c("#DCDCDC", ggplotColours(n=14))
+
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_Clusters.pdf"), width=15, height=15)
+# Check to see how the UMAP plot looks
+Idents(object = seu) <- "orig.ident"
+DimPlot(seu, group.by = "orig.ident", label = FALSE)
+DimPlot(seu, split.by = "orig.ident", group.by = "seurat_clusters", label = TRUE)
+DimPlot(seu, group.by = "cell_type", label = TRUE, cols = color_list, order = rev(cell_type_list))
+DimPlot(seu, group.by = "cluster_numbers_in_paper", label = TRUE, cols = color_list, order = rev(nums))
+DimPlot(seu, split.by = "orig.ident", group.by = "cluster_numbers_in_paper", label = TRUE, cols = color_list, order = rev(nums))
+dev.off()
+
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_Clusters_celltypeLabels.pdf"), width=15, height=15)
+Idents(seu) <- "cell_type"
+dimplot_names <- DimPlot(seu, group.by = "cell_type", label = FALSE, cols = color_list, order = rev(cell_type_list), pt.size = 0.75) + coord_fixed(ratio=1)
+dimplot_names
+dev.off()
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_Clusters_numberLabels.pdf"), width=15, height=15)
+Idents(seu) <- "cluster_numbers_in_paper"
+dimplot_nums <- DimPlot(seu, group.by = "cluster_numbers_in_paper", label = FALSE, cols = color_list, order = rev(nums), pt.size = 0.75) + coord_fixed(ratio=1)
+LabelClusters(dimplot_nums, id = "cluster_numbers_in_paper", repel = TRUE, size = 6)
+dev.off()
+
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_Clusters_celltypeLabels_numberLabels.pdf"), width=20, height=10)
+cowplot::plot_grid(dimplot_names,
+                   LabelClusters(dimplot_nums, id = "cluster_numbers_in_paper", repel = TRUE, size = 6))
+dev.off()
+
+
+
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_NeuronClusters_celltypeLabels.pdf"), width=15, height=10)
+Idents(seu) <- "cell_type"
+dimplot_names_neurons <- DimPlot(subset(seu, idents = "Glia", invert = TRUE), group.by = "cell_type", label = FALSE, cols = color_list[2:15], order = rev(cell_type_list[2:15]), pt.size = 0.75) + coord_fixed(ratio=1)
+dimplot_names_neurons
+dev.off()
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_NeuronClusters_numberLabels.pdf"), width=15, height=15)
+Idents(seu) <- "cluster_numbers_in_paper"
+dimplot_nums_neurons <- DimPlot(subset(seu, idents = "0", invert = TRUE), group.by = "cluster_numbers_in_paper", label = FALSE, cols = color_list[2:15], order = rev(nums[2:15]), pt.size = 0.75) + coord_fixed(ratio=1)
+LabelClusters(dimplot_nums_neurons, id = "cluster_numbers_in_paper", repel = TRUE, size = 6)
+dev.off()
+
+pdf(file=paste0(figdir, "Glia+Neurons_Integrated_NeuronClusters_celltypeLabels_numberLabels.pdf"), width=20, height=10)
+cowplot::plot_grid(dimplot_names_neurons,
+                   LabelClusters(dimplot_nums_neurons, id = "cluster_numbers_in_paper", repel = TRUE, size = 6))
+dev.off()
+
+
+
+
+# For extracting separately, subset based on WT or KO
+Idents(object = seu) <- "orig.ident"
+seu.WT <- subset(seu, idents = "WT")
+seu.KO <- subset(seu, idents = "KO")
+
+# Check to see how the UMAP plot looks
+Idents(object = seu.WT) <- "seurat_clusters"
+DimPlot(seu.WT, label = TRUE)
+DimPlot(seu.WT, group.by = "cell_type", label = TRUE)
+DimPlot(seu.WT, group.by = "cluster_numbers_in_paper", label = TRUE)
+
+# Check to see how the UMAP plot looks
+Idents(object = seu.KO) <- "seurat_clusters"
+DimPlot(seu.KO, label = TRUE)
+DimPlot(seu.KO, group.by = "cell_type", label = TRUE)
+DimPlot(seu.KO, group.by = "cluster_numbers_in_paper", label = TRUE)
+
+
+```
+
+### Method 1: Save the Seurat object as a h5Seurat, convert to .h5ad
+Vignette: https://mojaveazure.github.io/seurat-disk/articles/convert-anndata.html
+```{r Convert Seurat to .h5ad, eval=FALSE}
+# Uses pkg SeuratDisk
+SaveH5Seurat(seu.WT, filename = paste0(outdir, "wt_glia+neurons_seurat_V1.h5Seurat"))
+Convert(paste0(outdir, "wt_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
+
+SaveH5Seurat(seu.KO, filename = paste0(outdir, "ko_glia+neurons_seurat_V1.h5Seurat"))
+Convert(paste0(outdir, "ko_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
+
+```
+
+### Method 2: Extract the cell barcodes for the Seurat objects as individual csv.
+In this case, the cell barcodes are prefixed with "WT_" or "KO_".
+```{r Extract metadata from the Seurat object, include=FALSE}
+
+# Extracting metadata     
+Idents(object = seu) <- "orig.ident"
+write.csv(Cells(seu), file = paste0(outdir, "cellID_wt_ko_glia+neurons_V1.csv"), row.names = FALSE)
+write.csv(Embeddings(seu, reduction = "umap"), file = paste0(outdir, "cell_embeddings_wt_ko_glia+neurons_V1.csv"))
+
+#write.csv(seu@meta.data$seurat_clusters, file = paste0(outdir, "clusters_all.csv"))
+umap_tbl <- data.frame(Embeddings(seu, reduction = "umap")) %>%
+  rownames_to_column('barcode')
+
+seu_tbl <- seu@meta.data %>%
+  select(orig.ident, seurat_clusters) %>%
+  rownames_to_column('barcode') %>%
+  left_join(umap_tbl, by = join_by(barcode==barcode))
+
+write.csv(seu_tbl, file = paste0(outdir, "seurat_meta_wt_ko_glia+neurons_V1.csv"))
+
+
+# write.csv(Cells(seu.WT), file = paste0(outdir, "cellID_WT.csv"), row.names = FALSE)
+# write.csv(Cells(seu.WT), file = paste0(outdir, "cellID_KO.csv"), row.names = FALSE)
+
+```
