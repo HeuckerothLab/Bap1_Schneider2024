@@ -54,8 +54,8 @@ library(Seurat)
 
 ```{r Directores}
 
-datadir = "Seurat_DifferentialExpression/data"
-resdir = "Seurat_DifferentialExpression/results"
+datadir = "Seurat/DataObjects/"
+resdir = "Seurat/DifferentialGeneExpression/"
 
 ```
 
@@ -86,19 +86,6 @@ write.xlsx(find_all_markers_res_all, file =  paste0(resdir, '/', 'Glia/', 'Glia_
 
 ```{r Getting differentially expressed genes}
 
-
-# Following S. Schneider's method:
-# index <- 1
-# for (val in sequence)
-# {
-#   cluster <- subset(x = CombinedData_ClusterNames, idents = val)
-#   Idents(cluster) <- "orig.ident"
-#   name <- names[index]
-#   write.csv(FindAllMarkers(cluster, assay = "RNA"), paste("G:\\Single Cell Seq Bap1 Data\\Bap1GeneExpression\\", name, ".csv"))
-#   index <- index + 1
-# }
-
-# Updating this loop to make it easier
 Idents(Combined_Data_Glia_ClusterNames_v2) = "celltype"
 list_of_clusters = unique(Combined_Data_Glia_ClusterNames_v2@meta.data$celltype)
 # names(list_of_clusters) = unique(Combined_Data_Glia_ClusterNames_v2@meta.data$seurat_clusters)
