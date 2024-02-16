@@ -23,11 +23,11 @@ print(np.__version__)
 
 
 # Load the ko data
-adata_seurat = sc.read_h5ad('scRNA_data/ko_glia+neurons_seurat_V1.h5ad')
+adata_seurat = sc.read_h5ad('RNAVelocity/DataObjects/Knockout/ko_glia+neurons_seurat_V1.h5ad')
 print(adata_seurat)
 
 
-adata_loom = anndata.read_loom("scRNA_data/Knockout/velocyto_loom/V3/possorted_genome_bam_WDJXT.loom")
+adata_loom = anndata.read_loom("RNAVelocity/DataObjects/Knockout/possorted_genome_bam_WDJXT.loom")
 print(adata_loom)
 
 
