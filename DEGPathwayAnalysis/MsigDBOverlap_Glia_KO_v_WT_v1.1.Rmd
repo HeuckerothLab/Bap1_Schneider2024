@@ -1,0 +1,280 @@
+---
+title: "Bap1 MSigDBOverlap Pathway Analysis: Top 10 gene sets"
+subtitle: "Glia DEGs KO vs. WT"
+author: "Kat Beigel (beigelk@chop.edu)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(readr)
+library(xlsx)
+library(ggplot2)
+library(scales)
+library(mgsub)
+library(msigdbr)
+library(viridis)
+
+```
+
+# Project set up
+
+```{r Directories and project info}
+
+# Main dir for the project
+base_dir = "DEGPathwayAnalysis/"
+
+# Where to load DEG lists from
+data_dir = "Seurat/DifferentialGeneExpression/"
+
+# Where to write results
+res_dir = "MSigDBOverlap/"
+
+# All clusters compared is on Sheet 1
+infile = "Neurons_GeneExpression_ConditionsCompared.xlsx"
+
+version = "V1"
+proj = "Bap1_Glia_KO_v_WT"
+analysis_name = "MSigDBOverlap"
+
+```
+
+``` {r Load data}
+
+
+#  data_files = list.files(data_dir)
+
+# Load in significant genes from DEG analysis in Seurat
+deg_tbl = read.xlsx(paste0(data_dir, infile), sheetIndex = 1) %>% # All clusters compared is on Sheet 1
+  # Fix col names
+  dplyr::rename(symbol = NA.) %>%
+  # Drop unneeded columns
+  dplyr::select(-c(NA..1)) %>%
+  mutate(symbol = gsub('\\.1', '', symbol)) %>%
+  # This data sheet reports all positive fold changes,
+  # need to convert the "positive in WT" to negative
+  mutate(
+    avg_logFC = case_when(
+      cluster == "WT" ~ -(avg_logFC),
+      .default = avg_logFC)
+  ) %>%
+  # Update the cluster to say KO
+  mutate(
+    cluster = "KO"
+  ) %>%
+  # Need to change the logFC to log2FC as that is more standard
+  mutate(
+    # https://www.statology.org/antilog-in-r/
+    avg_fold = exp(avg_logFC),
+    avg_log2FC = log2(avg_fold)
+  ) %>%
+  dplyr::arrange(desc(avg_logFC))
+
+datatable(deg_tbl %>%
+            tibble() %>%
+            mutate('Significant? (p_val_adj < 0.05)' = case_when(p_val_adj < 0.05 ~ "yes", .default = "no")) %>%
+            mutate(
+              across(c('p_val', 'p_val_adj'), \(x) format(x, digits = 4, scientific = TRUE)),
+              across(c('avg_logFC', 'avg_fold', 'avg_log2FC'), \(x) format(x, digits = 4, scientific = FALSE))),
+                   caption = htmltools::tags$caption(style = 'caption-side: top; text-align: center; color:black;  font-size:200% ;', paste0('DEGs for all clusters'))
+            )
+
+```
+
+
+```{r Write gene list files for MSigDBOverlap}
+
+options("encoding" = "UTF-8")
+
+# Here we will take the top genes up, top genes down, and top genes up or down
+# for MSigDBOverlap analysis at https://www.gsea-msigdb.org/gsea/msigdb/human/annotate.jsp
+# using the Mouse gene identifies (orthology mapping)
+
+# Genes UP
+genes_up = deg_tbl %>%
+  filter(p_val_adj < 0.05) %>%
+  filter(avg_log2FC > 0) %>%
+  top_n(200, avg_log2FC)
+
+write.table(genes_up %>% pull(gene),
+            file = paste0(res_dir, "MSigDBOverlap/InputLists/", proj, "_",
+                          "GenesUp_MSigDBOverlap", "_", version, ".csv"),
+            row.names = FALSE,
+            quote = FALSE,
+            col.names = c(paste0(proj, "_", "GenesUp_MSigDBOverlap", "_", version)))
+
+# Genes DOWN
+genes_down = deg_tbl %>%
+  filter(p_val_adj < 0.05) %>%
+  filter(avg_log2FC < 0) %>%
+  top_n(-200, avg_log2FC) %>%
+  arrange(desc(avg_log2FC))
+
+
+write.table(genes_down %>% pull(symbol),
+            file = paste0(res_dir, "MSigDBOverlap/InputLists/", proj, "_",
+                          "GenesDown_MSigDBOverlap", "_", version, ".csv"),
+            row.names = FALSE,
+            quote = FALSE,
+            col.names = c(paste0(proj, "_", "GenesDown_MSigDBOverlap", "_", version)))
+
+```
+
+
+
+# Use lists to get MSigDBOverlap results
+
+Instructions available at [MSigDB Dot Plots](https://github.com/beigelk/figures_in_R/tree/main/MSigDB_Overlap_viz).
+
+This includes instructions for getting the results using MSigDB's Overlap Analysis (view the [README](https://github.com/beigelk/figures_in_R/blob/main/MSigDB_Overlap_viz/README.md)).
+
+
+```{r cowplot}
+
+library(cowplot)
+
+```
+
+
+## MSigDBOverlap significant pathways for DE genes UP in KO
+
+```{r Make plots of the MSigDB MSigDBOverlap results: Genes up, fig.width=10, fig.height=10}
+
+MSigDBOverlap_genes_up = read_tsv(paste0(res_dir, "MSigDBOverlap/Results/",
+                                         proj, "_", "GenesUp_MSigDBOverlap", "_", version, "_overlap_table.tsv"),
+                                show_col_types = FALSE) %>%
+  mutate(prettyname = gsub('_', ' ', .$`Gene Set Name`)) %>%
+  mutate(database = gsub("_(.*?)$", '', .$`Gene Set Name`)) %>%
+  mutate(shortname = gsub("^(.*?)_", '', .$`Gene Set Name`)) %>%
+  mutate(shortname_pretty = gsub('_', ' ', .$shortname)) 
+
+dotplot = ggplot(MSigDBOverlap_genes_up %>%
+                 mutate(shortname_pretty = fct_reorder(shortname_pretty, `k/K`)),
+               aes(x = `k/K`, y = shortname_pretty, color = -log10(`FDR q-value`),
+                   size = `# Genes in Overlap (k)`)) +
+  scale_y_discrete(label = function(x) str_wrap(x, width = 25)) +
+  geom_point(stat = 'identity') + 
+  xlab("Gene ratio") + # (# Genes in Overlap / # Genes in Gene Set)
+  # ylab("Pathway") +
+  ggtitle("HIGHER IN TyrBap1") + # "MSigDB Overlap of Glia DEGs up in KO (all clusters): Top 10 Gene Sets"
+  # labs(subtitle = "Top (max 200) genes up (positive) in KO by avg_log2FC") +
+  facet_grid(database ~ ., scales = "free_y", space = "free_y") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 16), 
+        # plot.subtitle = element_text(hjust = 0.5, size = 8, family = "Arial"),
+        axis.text.y = element_text(size = 16, color = "black"),
+        strip.text = element_text(size = 16, color = "black"), 
+        axis.text.x = element_text(size = 16, color = "black"),
+        axis.title = element_text(size = 16),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.text = element_text(size=16),
+        legend.title = element_text(size=16),
+        legend.key.height= unit(1, 'cm'),
+        legend.key.width= unit(1.2, 'cm'),
+        legend.spacing.y = unit(0.01, 'cm')) +
+  guides(color = guide_colorbar(order=1, title = "-log10(FDR)"),
+         size = guide_legend(order=2, title = "# Genes in overlap", nrow=1, label.position = "bottom")) +
+  scale_color_gradient(low = "blue", high = "red")
+
+print(dotplot)
+
+pdf(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "GenesUp", "_", version, ".1.pdf"), height = 10, width = 10)
+print(dotplot)
+dev.off()
+
+png(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "GenesUp", "_", version, ".1.png"), height = 10, width = 10, units = "in", res = 300)
+print(dotplot)
+dev.off()
+
+Glia_up = dotplot
+
+```
+
+
+## MSigDBOverlap significant pathways for DE genes DOWN in KO
+
+```{r Make plots of the MSigDB MSigDBOverlap results: Genes down, fig.width=10, fig.height=10}
+
+MSigDBOverlap_genes_down = read_tsv(paste0(res_dir, "MSigDBOverlap/Results/",
+                                           proj, "_", "GenesDown_MSigDBOverlap", "_", version, "_overlap_table.tsv"),
+                                  show_col_types = FALSE) %>%
+  mutate(prettyname = gsub('_', ' ', .$`Gene Set Name`)) %>%
+  mutate(database = gsub("_(.*?)$", '', .$`Gene Set Name`)) %>%
+  mutate(shortname = gsub("^(.*?)_", '', .$`Gene Set Name`)) %>%
+  mutate(shortname_pretty = gsub('_', ' ', .$shortname)) 
+
+
+dotplot = ggplot(MSigDBOverlap_genes_down %>%
+                 mutate(shortname_pretty = fct_reorder(shortname_pretty, `k/K`)),
+               aes(x = `k/K`, y = shortname_pretty, color = -log10(`FDR q-value`), size = `# Genes in Overlap (k)`)) +
+  scale_y_discrete(label = function(x) str_wrap(x, width = 25)) +
+  geom_point(stat = 'identity') + 
+  xlab("Gene ratio") + # (# Genes in Overlap / # Genes in Gene Set)
+  ylab("Pathway") +
+  ggtitle("HIGHER IN WT") + # "MSigDB Overlap of Glia DEGs down in KO (all clusters): Top 10 Gene Sets"
+  # labs(subtitle = "Top (max 200) genes down (negative) in KO by avg_log2FC") +
+  facet_grid(database ~ ., scales = "free_y", space = "free_y") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 16), 
+        # plot.subtitle = element_text(hjust = 0.5, size = 8, family = "Arial"),
+        axis.text.y = element_text(size = 16, color = "black"),
+        strip.text = element_text(size = 16, color = "black"), 
+        axis.text.x = element_text(size = 16, color = "black"),
+        axis.title = element_text(size = 16),
+        legend.position = "bottom",
+        legend.box = "vertical",
+        legend.text = element_text(size=16),
+        legend.title = element_text(size=16),
+        legend.key.height= unit(1, 'cm'),
+        legend.key.width= unit(1.2, 'cm'),
+        legend.spacing.y = unit(0.01, 'cm')) +
+  guides(color = guide_colorbar(order=1, title = "-log10(FDR)"),
+         size = guide_legend(order=2, title = "# Genes in overlap", nrow=1, label.position = "bottom")) +
+  scale_color_gradient(low = "blue", high = "red")
+
+print(dotplot)
+
+pdf(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "GenesDown", "_", version, ".1.pdf"), height = 10, width = 10)
+print(dotplot)
+dev.off()
+
+png(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "GenesDown", "_", version, ".1.png"), height = 10, width = 10, units = "in", res = 600)
+print(dotplot)
+dev.off()
+
+Glia_down = dotplot
+
+```
+
+
+```{r}
+
+
+plot_grid(Glia_down, Glia_up)
+
+pdf(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "SuppFig", "_", version, ".1.pdf"), height = 6.8*2, width = 7.1*2)
+print(plot_grid(Glia_down, Glia_up))
+dev.off()
+
+png(file = paste0(res_dir, "MSigDBOverlap/Figures/", analysis_name, "_", proj, "_",
+                  "AllClusters", "_", "SuppFig", "_", version, ".1.png"), height = 6.8*2, width = 7.1*2, units = "in", res = 600)
+print(plot_grid(Glia_up, Glia_down))
+dev.off()
+
+
+```
+
+```{r Session info}
+
+sessionInfo()
+
+```
