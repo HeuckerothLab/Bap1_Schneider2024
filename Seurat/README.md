@@ -7,5 +7,5 @@ S. Schneider's main analysis scripts for pre-processing (filtering) scRNA data a
 ## `DifferentialExpressionAnalysis`
 K. Beigel's replication of S. Schneider's differential expresison analysis, using updated cluster names. The purpose of this was to make sure the resulting files were standardized and that S. Schenider's process was reproducible.
 
-## `IntegrationRNAVelocityPrep`
+## `RNAVelocityPreprocessing`
 K. Beigel's integration script for combining glia and neuron WT and KO samples in Seurat v4 object, which was necessary data preparation for RNA velocity analysis.
