@@ -136,7 +136,6 @@ color_list = ["#DCDCDC",
                "#FB61D7",
                "#FF66A8"]
 
-
 palette_cols_clustnum = {}
 for key in cluster_nums_list:
     for value in color_list:
