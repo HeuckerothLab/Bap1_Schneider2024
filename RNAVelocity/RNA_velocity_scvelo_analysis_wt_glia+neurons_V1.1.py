@@ -10,7 +10,6 @@
 # https://scvelo.readthedocs.io/en/stable/VelocityBasics/
 # https://smorabit.github.io/tutorials/8_velocyto/
 
-
 import anndata
 import scanpy as sc
 import scvelo as scv
@@ -22,10 +21,6 @@ from scipy.stats import rankdata
 
 
 print(np.__version__)
-print(sc.__version__)
-print(scv.__version__)
-print(anndata.__version__)
-
 
 # Load the wt data
 adata_seurat = sc.read_h5ad('RNAVelocity/DataObjects/Wildtype/wt_glia+neurons_seurat_V1.h5ad')
@@ -236,12 +231,9 @@ scv.pl.velocity_embedding_stream(adata_all, basis = 'umap', color='cell_type', l
 # Dynamical modeling: https://scvelo.readthedocs.io/en/stable/DynamicalModeling/
 # The driver genes (top-likelihood genes) show dynamic behavior (high likelihood in dynamic model).
 
-
 top_genes = adata_all.var['fit_likelihood'].sort_values(ascending=False).index
 print(top_genes)
-
 
 scv.pl.scatter(adata_all, basis=top_genes[:20], ncols=1, color='cell_type', frameon=False,
                palette = palette_cols_celltypes,
                save='wt_glia+neurons_top20_likelihood_genes_celltype_V1.1.pdf')
-
