@@ -20,9 +20,9 @@ library(cowplot)
 
 ### Set the directory for where to read/write data files
 ```{r Directories}
-datadir <- "Integrate_Glia+Neurons/scRNA_data/"
-outdir <- "scRNA_data/"
-figdir <- "Seurat_to_RNA_Velocity_Glia+Neurons/figures/"
+datadir <- "Seurat/DataObjects/"
+outdir <- "RNAVelocity/DataObjects/"
+# figdir <- "Seurat_to_RNA_Velocity_Glia+Neurons/figures/"
 #list.files(datadir, recursive = TRUE)
 ```
 
@@ -151,11 +151,11 @@ DimPlot(seu.KO, group.by = "cluster_numbers_in_paper", label = TRUE)
 Vignette: https://mojaveazure.github.io/seurat-disk/articles/convert-anndata.html
 ```{r Convert Seurat to .h5ad, eval=FALSE}
 # Uses pkg SeuratDisk
-SaveH5Seurat(seu.WT, filename = paste0(outdir, "wt_glia+neurons_seurat_V1.h5Seurat"))
-Convert(paste0(outdir, "wt_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
+SaveH5Seurat(seu.WT, filename = paste0(outdir, "Wildtype/wt_glia+neurons_seurat_V1.h5Seurat"))
+Convert(paste0(outdir, "Wildtype/wt_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
 
-SaveH5Seurat(seu.KO, filename = paste0(outdir, "ko_glia+neurons_seurat_V1.h5Seurat"))
-Convert(paste0(outdir, "ko_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
+SaveH5Seurat(seu.KO, filename = paste0(outdir, "Knockout/ko_glia+neurons_seurat_V1.h5Seurat"))
+Convert(paste0(outdir, "Knockout/ko_glia+neurons_seurat_V1.h5Seurat"), dest = "h5ad")
 
 ```
 
