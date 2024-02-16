@@ -54,8 +54,8 @@ library(Seurat)
 
 ```{r Directores}
 
-datadir = "Seurat_DifferentialExpression/data"
-resdir = "Seurat_DifferentialExpression/results"
+datadir = "Seurat/DataObjects/"
+resdir = "Seurat/DifferentialGeneExpression/"
 
 ```
 
@@ -73,7 +73,6 @@ Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP = AddMetaData(Combined_Data_Neu
 # ENC 8/9 - ENC 12 Precursor <- Confused Neuron
 # Immature cholinergic Neuron <- Cholinergic Neuroblast-2
 # Cholinergic Neuroblast/ ENC4 Precursor <- Immature Excitatory Motor Neuron/ENC4
-
 
 renamed_clusters = tibble(celltype = Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP@meta.data$celltype) %>%
   mutate(updated_celltype = case_when(celltype == c('Undecided neuroblast-2') ~ ('S phase mitotic neuroblast'),
@@ -94,8 +93,7 @@ Idents(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP) = "orig.ident"
 DimPlot(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP)
 find_all_markers_res_all = FindAllMarkers(Combined_Data_Neuron_nFeat1500_ClusterNames_UMAP, assay = "RNA")
 
-write.csv(find_all_markers_res_all, paste0(resdir, '/', 'Neuron/', 'Neurons', '_', 'GeneExpression_ConditionsCompared_AllClusters', '.csv'),
-            quote=FALSE, row.names = TRUE)
+# write.csv(find_all_markers_res_all, paste0(resdir, '/', 'Neuron/', 'Neurons', '_', 'GeneExpression_ConditionsCompared_AllClusters', '.csv'), quote=FALSE, row.names = TRUE)
 
 write.xlsx(find_all_markers_res_all, file =  paste0(resdir, '/', 'Neuron/', 'Neurons_GeneExpression_ConditionsCompared', '.xlsx'),
            sheetName = "All_Clusters", col.names = TRUE, row.names = TRUE, append = FALSE)
@@ -130,10 +128,6 @@ for (item in 1:length(list_of_clusters)) {
   }
 
 ```
-
-
-
-
 
 ```{r}
 sink("Seurat_Neuron_DEGs_byCluster_sessionInfo.txt")
