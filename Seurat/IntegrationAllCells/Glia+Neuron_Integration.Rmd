@@ -159,7 +159,11 @@ DimPlot(glia_neurons_integrated, split.by = "orig.ident")
 
 ```
 
-
+```{r session info}
+sink("sessionInfo.txt")
+sessionInfo()
+sink()
+```
 
 
 
