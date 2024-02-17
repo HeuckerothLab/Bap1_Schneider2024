@@ -33,7 +33,7 @@ library(fgsea)
 ```{r Directories and project info}
 
 # Main dir for the project
-base_dir = "DEG_PathwayAnalysis/"
+base_dir = "DEGPathwayAnalysis/"
 
 # Where to load DEG lists from
 data_dir = "Seurat/DifferentialGeneExpression/"
