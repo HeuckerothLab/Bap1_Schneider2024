@@ -1,5 +1,5 @@
-# Bap1
-Code for Bap1 analyses
+# Schneider et al. 2024
+Code for all data analyses in Schenider et al. 2024 (JCI). Data files are available at: [OSF | Bap1_Schneider2024](https://osf.io/jgnve/)
 
 
 # Analyses
