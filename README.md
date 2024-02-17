@@ -16,7 +16,7 @@ Code for all data analyses in Schenider et al. 2024 (JCI). Data files are availa
 # Pathway analysis
 **Neuron**
 - MSigDB overlap analysis (R): `MSigDBOverlap_Neuron_KO_v_WT_V1.1.Rmd` in [DEGPathwayAnalysis](https://github.com/HeuckerothLab/Bap1_Schneider2024/tree/main/DEGPathwayAnalysis)
-- fgsea analysis: 'fgsea_Neuron_KO_v_WT_V1.Rmd' in [DEGPathwayAnalysis](https://github.com/HeuckerothLab/Bap1_Schneider2024/tree/main/DEGPathwayAnalysis)
+- fgsea analysis: `fgsea_Neuron_KO_v_WT_V1.Rmd` in [DEGPathwayAnalysis](https://github.com/HeuckerothLab/Bap1_Schneider2024/tree/main/DEGPathwayAnalysis)
 
 **Glia**
 - MSigDB overlap analysis: `MsigDBOverlap_Glia_KO_v_WT_v1.1.Rmd` in [DEGPathwayAnalysis](https://github.com/HeuckerothLab/Bap1_Schneider2024/tree/main/DEGPathwayAnalysis)
