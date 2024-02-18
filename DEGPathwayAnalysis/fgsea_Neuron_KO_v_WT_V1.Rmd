@@ -1,0 +1,279 @@
+---
+title: "Bap1 fgsea Pathway Analysis"
+subtitle: "Neuron DEGs KO vs. WT, across all clusters"
+author: "Kat Beigel (beigelk@chop.edu)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# utility
+library(tidyverse)
+library(readr)
+library(xlsx)
+library(tools)
+library(gtools)
+library(ggplot2)
+library(scales)
+library(mgsub)
+library(msigdbr)
+library(viridis)
+library(DT)
+library(data.table)
+
+# analysis
+library(fgsea)
+
+```
+
+# Project set up
+
+```{r Directories and project info}
+
+# Main dir for the project
+base_dir = "DEGPathwayAnalysis/"
+
+# Where to load DEG lists from
+data_dir = "Seurat/DifferentialGeneExpression/"
+
+# Where to write results
+res_dir = "DEGPathwayAnalysis/fgsea/"
+
+infile = "Neuron_GeneExpression_ConditionsCompared_V1.xlsx"
+
+version = "V1"
+proj = "Bap1_Neuron_KO_v_WT"
+analysis_name = "fgsea"
+name = "all clusters"
+
+```
+
+``` {r Load data}
+
+#  data_files = list.files(data_dir)
+
+# Load in significant genes from DEG analysis in Seurat
+deg_tbl = read.xlsx(paste0(data_dir, infile), sheetIndex = 1) %>% # All clusters data is on Sheet 1
+  # Fix col names
+  dplyr::rename(symbol = NA.) %>%
+  # Drop unneeded columns
+  dplyr::select(-c(NA..1, NA..2)) %>%
+  # Filter to keep only KO
+  filter(cluster == "KO") %>%
+  mutate(symbol = gsub('\\.1', '', symbol)) %>%
+  mutate_at(c('p_val', 'avg_logFC', 'pct.1', 'pct.2', 'p_val_adj'), as.numeric) %>%
+  # Need to change the logFC to log2FC as that is more standard
+  mutate(
+    # https://www.statology.org/antilog-in-r/
+    avg_fold = exp(avg_logFC),
+    avg_log2FC = log2(avg_fold)
+  ) %>%
+  dplyr::arrange(desc(avg_logFC))
+
+```
+
+# DEG table 
+
+Data in table has been modified to show positive/negative values for KO (KO v. WT condition) by keep only rows where cluster == "KO", as the original file showed every gene for each condition separately.
+
+Table has been edited to also show fold change and log2FC calculated from logFC (natural log) values.
+
+
+```{r Input table}
+
+datatable(deg_tbl %>%
+            tibble() # %>%
+            # mutate(across(c()), \(x) round(x, 10))
+            )
+
+fwrite(deg_tbl, file = paste0(res_dir, "csvs/", "DEGs", "_", proj, "_", gsub(' ', '_', name), "_", version, ".csv"),
+       sep = ",", sep2 = c("", "|", ""))
+
+
+```
+
+``` {r Functions}
+
+# Imports MSigDB datasets
+ImportGenesetData <- function(species_name, collection, subcollection){
+  if (missing(subcollection)) genesets <- msigdbr(species = species_name, category = collection)
+  else genesets <- msigdbr(species = species_name, category = collection, subcategory = subcollection)
+  genesets_list <- split(x = genesets$gene_symbol, f = genesets$gs_name)
+  genesets_info <- split(x = genesets$gs_description, f = genesets$gs_name)
+  for (i in 1:length(genesets_list)){
+    genesets_list[[i]] <- unique(genesets_list[[i]])
+    genesets_info[[i]] <- unique(genesets_info[[i]])
+  }
+  list(genesets_list, genesets_info)
+}
+
+```
+
+# Pathways to analyze from MSigDB (via msigdbr)
+
+``` {r Load gene sets from msigdbr}
+# Load data from msigdb via msigdbr
+# https://igordot.github.io/msigdbr/
+
+species = "Mus musculus"
+
+hallmark <- ImportGenesetData(species, "H")
+
+c2cp <- c(ImportGenesetData(species, "C2", "CP:BIOCARTA"),
+          ImportGenesetData(species, "C2", "CP:KEGG"),
+          ImportGenesetData(species, "C2", "CP:PID"),
+          ImportGenesetData(species, "C2", "CP:REACTOME"),
+          ImportGenesetData(species, "C2", "CP:WIKIPATHWAYS"))
+
+pathway_genesets_list <- list(hallmark, c2cp)
+
+pathway_genesets_names <- c("Hallmark", "C2.CP")
+
+```
+
+```{r Preparing pathway analysis}
+
+
+complete_list_genesets = c(pathway_genesets_list[[1]][[1]],
+                           pathway_genesets_list[[2]][[1]],
+                           pathway_genesets_list[[2]][[3]],
+                           pathway_genesets_list[[2]][[5]],
+                           pathway_genesets_list[[2]][[7]],
+                           pathway_genesets_list[[2]][[9]])
+
+```
+
+# fgsea Analysis
+
+```{r Run fgsea, fig.width=15, fig.height=10}
+
+deg_tbl_ordered = deg_tbl %>%
+  arrange(desc(avg_log2FC))
+
+print(paste0("Analysis: ", name))
+
+# Make gene list
+gene_list = deg_tbl_ordered %>% pull(avg_log2FC)
+names(gene_list) <- deg_tbl_ordered %>% pull(gene)
+barplot(gene_list, cex.lab = 1, cex.names = 0.1, las = 2, ylim = c(-10, 10))
+
+# fgsea should be used with set.seed() for reproducibility
+# https://github.com/ctlab/fgsea/issues/12
+set.seed(2345678)
+fgsea_res <- fgsea(pathways = complete_list_genesets,
+                   stats = gene_list,
+                   minSize = 3,
+                   maxSize = 500,
+                   eps = 0.0)
+
+fgsea_res_filt = fgsea_res %>%
+  filter(padj < 0.05) %>%
+  mutate(database = gsub("_(.*?)$", '', .$pathway)) %>%
+  mutate(shortname = gsub("^(.*?)_", '', .$pathway)) %>%
+  mutate(prettyname = gsub('_', ' ', .$shortname))
+
+```
+
+# fgsea Results
+
+## Figure of fgsea results: Significant Pathways
+
+```{r figure, fig.width=15, fig.height=15}
+
+if (dim(fgsea_res_filt)[1] != 0){
+  
+  lolli = ggplot(
+    fgsea_res_filt,
+    aes(x = reorder(prettyname, -NES), y = NES)) +
+    # add segments based on NES and color based on padj
+    geom_segment(aes(x = reorder(prettyname, -NES),
+                     xend = reorder(prettyname, -NES),
+                     y = 0,
+                     yend = NES,
+                     color = padj)) +
+    # adds points with specified colors and sizes to the end of the segments based on values in the dataframe
+    geom_point(aes(color = padj,
+                   size = size)) +
+    # manually set the color and scale of p.adjust if needed
+    scale_color_viridis(limits = c(0, 0.05),
+                        direction = 1,
+                        option = "turbo",
+                        end = 0.9, begin = 0.25) +
+    # flip the x and y coords to put pathways on the y-axis if you'd like
+    coord_flip() +
+    # # changing theme to light
+    theme_light() +
+    # so that they're in alphabetical order and wrap the text after 30 characters to fit better.
+    scale_x_discrete(label = function(x) str_wrap(x, width = 60)) +
+    # split into panels based on conditions/comparisons (ontology in this case) and put panel label on right
+    facet_grid(database ~ ., scales = "free_y", space = "free_y") +
+    # if needed, set y-limits for NES
+    # ylim(-4.5, 4.5) +
+    # add vertical line at 0 NES
+    geom_hline(yintercept = 0, color = "black") +
+    # changing theme elements
+    theme(
+      #panel.grid.major.y = element_blank(),
+      panel.border = element_rect(colour = "black"),
+      axis.ticks = element_line(color = "black"),
+      axis.title.y = element_blank(),
+      #legend.title.align = 0.5,
+      legend.key.height = unit(1, 'cm')
+    ) + 
+    # change theme elements of panel titles (can change colors and fonts)
+    theme(strip.background = element_rect(fill = "grey90", color = "black"),
+          strip.text = element_text(colour = 'black', face = "bold"),
+          plot.title = element_text(hjust = 0.5),
+          plot.subtitle = element_text(hjust = 0.5, size = 8)) +
+    # change legend labels and y-axis label
+    labs(title = paste0("fgsea Significant Pathways for DEGs in ",
+                        gsub('_', ' ', gsub("^(.*?)_", '', name))),
+         color = "Adjusted p-value",
+         size = "Number of genes in pathway",
+         y = "Normalized Enrichment Score")
+  
+  print(paste0("Results: significant pathways for ", name))
+  print(lolli)
+  
+  pdf(file = paste0(res_dir, analysis_name, "_", proj, "_", name, "_", version, ".pdf"),
+      height = 12, width = 10)
+  print(lolli)
+  dev.off()
+  
+  png(file = paste0(res_dir, analysis_name, "_", proj, "_", name, "_", version, ".png"),
+      height = 12, width = 10, units = "in", res = 300)
+  print(lolli)
+  dev.off()
+  
+} else {
+  print(paste0("Results: No significant pathways for ", name))
+}
+
+```
+
+## Table of fgsea results: Significant Pathways
+
+```{r Table of results}
+
+fgsea_res_filt %>% dplyr::select(-prettyname) %>%
+  # mutate(across(where(is.numeric), \(x) round(x, 6))) %>%
+  datatable()
+
+fwrite(fgsea_res_filt %>% dplyr::select(-prettyname), file = paste0(res_dir, "csvs/", analysis_name, "_", proj, "_", gsub(' ', '_', name), "_", version, ".csv"),
+       sep = ",", sep2 = c("", "|", ""))
+
+```
+
+# Reference for gene sets tested
+
+```{r List of gene sets tested}
+complete_list_genesets
+```
+
+```{r Session info}
+
+sessionInfo()
+
+```
