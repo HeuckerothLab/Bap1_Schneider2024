@@ -8,7 +8,7 @@ The analyses for this paper are separated into three main components:
 
 ## `Seurat/`
 Pre-processing, integration, cluster markers, and differential expression.
-  - `MainAnalysis/`: Quality filtering, ntegration of WT and _TyrBap1_ KO samples, identifying cell types, cluster marker identification for neurons and glia. Neurons and glia were identified and analyzed separately. Includes initial differential expression analysis of neurons (but not glia).
+  - `MainAnalysis/`: Quality filtering, integration of WT and _TyrBap1_ KO samples, identifying cell types, cluster marker identification for neurons and glia. Neurons and glia were identified and analyzed separately. Includes initial differential expression analysis of neurons (but not glia).
   - `DifferentialExpressionAnalysis/`: differential expression (using Seurat between WT and _TyprBap1_ KO across all clusters and for each individual cluster). This differential expression analysis is set up the same way as the DE analysis in `MainAnalysis/`, just with more formalized code to produce a standardized output for both neurons and glia.
   - `IntegrationAllCells/`: Integration of WT and _TyrBap1_ KO samples neurons and glia to produce UMAP coordinates and cell types metadata for RNA velocity visualizations. Cell types were pulled from `MainAnalysis/` data, matched barcodes to assign cell types in this integration, integration was performed, and the resulting Seurat object was saved (h5Seurat) and converted to .h5ad for RNA velocity analysis input.
 
